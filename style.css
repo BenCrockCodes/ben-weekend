@@ -1,12 +1,21 @@
-a:link{
-    color: lawngreen;
+body {
+    background: linear-gradient(#07c8f9, #0d41e1);
 }
-a:visited{
-    color: grey;
+#topElements {
+    text-align: center;
+    margin: 0 auto;
+    font-size: 1.4em;
 }
-a:hover{
-    color: tomato;
+#buttonHolder {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 15px;
 }
-button:hover{
+.gameButtons {
+    padding: 45px;
+    font-size: 20px;
+    font-weight: bold;
+}
+.gameButtons:hover {
     cursor: pointer;
 }
