@@ -1,26 +1,224 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Log-in page</title>
-    <link href="style.css" rel="stylesheet">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#05010e">
+  <title>NEOVOLT — Neon Rhythm Platformer</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='2' width='12' height='12' rx='2' fill='%2300f0ff'/%3E%3Crect x='5' y='5' width='6' height='6' fill='%23ff2ea6'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Chakra+Petch:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="editor.css">
 </head>
 <body>
-    <div class="container">
-        <form>
-            <h2>Log in</h2>
-            <br>
-            <div class="input-group">
-                <input type="text" required placeholder="Username">
-            </div>
-            <div class="input-group">
-                <input type="password" required placeholder="Password">
-            </div>
-            <div class="sign-up">
-                <label>Dont have an account?<br><a href="signup.html">Sign up</a></label>
-            </div>
-        </form>
+  <!-- WebGL game canvas — everything in-world is drawn here -->
+  <canvas id="game-canvas"></canvas>
+
+  <!-- DOM UI layer sits on top of the canvas -->
+  <div id="ui-root">
+
+    <!-- ============ HUD (visible while playing) ============ -->
+    <div id="hud" class="screen" data-screen="hud">
+      <div id="progress-wrap" aria-label="Level progress">
+        <div id="progress-track">
+          <div id="progress-fill"></div>
+          <div id="progress-cube"></div>
+          <div id="progress-finish"></div>
+        </div>
+        <div id="progress-pct">0%</div>
+      </div>
+      <div id="hud-coins">
+        <span class="hud-coin" data-coin="0"></span>
+        <span class="hud-coin" data-coin="1"></span>
+        <span class="hud-coin" data-coin="2"></span>
+      </div>
+      <button id="btn-pause" class="icon-btn" aria-label="Pause">&#10074;&#10074;</button>
+      <div id="attempt-label">ATTEMPT&nbsp;1</div>
     </div>
+
+    <!-- ============ MAIN MENU ============ -->
+    <section id="screen-menu" class="screen menu-screen" data-screen="menu">
+      <button id="account-chip" title="Account & profile">&#9672; SIGN IN</button>
+      <div class="menu-inner">
+        <h1 id="logo">NEO<span>VOLT</span></h1>
+        <p id="tagline">A NEON RHYTHM PLATFORMER</p>
+        <nav class="menu-buttons">
+          <button class="btn btn-big btn-primary" data-action="play">PLAY</button>
+          <button class="btn btn-big" data-action="character">CHARACTER SELECT</button>
+          <button class="btn btn-big" data-action="settings">SETTINGS</button>
+          <button class="btn btn-big" data-action="leaderboards">LEADERBOARDS</button>
+        </nav>
+        <p id="menu-hint">SPACE / W / &uarr; TO JUMP &nbsp;&middot;&nbsp; TAP ON MOBILE</p>
+      </div>
+    </section>
+
+    <!-- ============ PLAY HUB ============ -->
+    <section id="screen-playhub" class="screen menu-screen" data-screen="playhub">
+      <div class="menu-inner">
+        <header class="screen-head">
+          <button class="btn btn-back" data-action="menu">&larr;</button>
+          <h2>PLAY</h2>
+        </header>
+        <nav class="menu-buttons hub-buttons">
+          <button class="btn btn-big btn-primary hub-btn" data-action="mainlevels">
+            <span class="hub-icon">&#9733;</span>PLAY MAIN LEVELS
+            <small>The official NEOVOLT campaign</small>
+          </button>
+          <button class="btn btn-big hub-btn" data-action="ugc">
+            <span class="hub-icon">&#127760;</span>PLAY USER GENERATED LEVELS
+            <small>Community levels &middot; online soon</small>
+          </button>
+          <button class="btn btn-big hub-btn" data-action="mylevels">
+            <span class="hub-icon">&#9998;</span>MY CREATED LEVELS
+            <small>Build, edit and playtest your own</small>
+          </button>
+        </nav>
+      </div>
+    </section>
+
+    <!-- ============ MAIN LEVELS ============ -->
+    <section id="screen-levels" class="screen menu-screen" data-screen="levels">
+      <div class="menu-inner wide">
+        <header class="screen-head">
+          <button class="btn btn-back" data-action="play">&larr;</button>
+          <h2>MAIN LEVELS</h2>
+        </header>
+        <div id="level-cards"><!-- populated by ui.js --></div>
+      </div>
+    </section>
+
+    <!-- ============ USER GENERATED LEVELS (online: future) ============ -->
+    <section id="screen-ugc" class="screen menu-screen" data-screen="ugc">
+      <div class="menu-inner wide">
+        <header class="screen-head">
+          <button class="btn btn-back" data-action="play">&larr;</button>
+          <h2>COMMUNITY LEVELS</h2>
+        </header>
+        <input id="ugc-search" type="text" placeholder="Search community levels&hellip;" disabled>
+        <div id="ugc-grid"><!-- skeleton cards + status from ui.js --></div>
+      </div>
+    </section>
+
+    <!-- ============ MY CREATED LEVELS ============ -->
+    <section id="screen-mylevels" class="screen menu-screen" data-screen="mylevels">
+      <div class="menu-inner wide">
+        <header class="screen-head">
+          <button class="btn btn-back" data-action="play">&larr;</button>
+          <h2>MY LEVELS</h2>
+          <button class="btn btn-primary" data-action="new-level">+ CREATE NEW</button>
+        </header>
+        <div id="mylevel-list"><!-- populated by ui.js --></div>
+      </div>
+    </section>
+
+    <!-- ============ ACCOUNT / PROFILES (online) ============ -->
+    <section id="screen-account" class="screen menu-screen" data-screen="account">
+      <div class="menu-inner wide">
+        <header class="screen-head">
+          <button class="btn btn-back" data-action="menu">&larr;</button>
+          <h2>ACCOUNT</h2>
+        </header>
+        <div id="account-body"><!-- rendered by accountUI.js --></div>
+      </div>
+    </section>
+
+    <!-- ============ LEADERBOARDS ============ -->
+    <section id="screen-leaderboards" class="screen menu-screen" data-screen="leaderboards">
+      <div class="menu-inner wide">
+        <header class="screen-head">
+          <button class="btn btn-back" data-action="menu">&larr;</button>
+          <h2>LEADERBOARDS</h2>
+        </header>
+        <div id="lb-table"><!-- populated by ui.js --></div>
+        <p class="soon-note">GLOBAL ONLINE LEADERBOARDS COMING SOON</p>
+      </div>
+    </section>
+
+    <!-- ============ CHARACTER SELECT (placeholder) ============ -->
+    <section id="screen-character" class="screen menu-screen" data-screen="character">
+      <div class="menu-inner">
+        <header class="screen-head">
+          <button class="btn btn-back" data-action="menu">&larr;</button>
+          <h2>CHARACTER</h2>
+        </header>
+        <div id="char-grid">
+          <div class="char-cell selected"><div class="char-cube c0"></div></div>
+          <div class="char-cell locked"><div class="char-cube c1"></div></div>
+          <div class="char-cell locked"><div class="char-cube c2"></div></div>
+          <div class="char-cell locked"><div class="char-cube c3"></div></div>
+          <div class="char-cell locked"><div class="char-cube c4"></div></div>
+          <div class="char-cell locked"><div class="char-cube c5"></div></div>
+        </div>
+        <p class="soon-note">CUSTOMIZATION COMING SOON</p>
+      </div>
+    </section>
+
+    <!-- ============ SETTINGS (modal) ============ -->
+    <section id="screen-settings" class="screen modal-screen" data-screen="settings">
+      <div class="modal-box">
+        <h2>SETTINGS</h2>
+        <label class="slider-row">
+          <span>MUSIC</span>
+          <input type="range" id="vol-music" min="0" max="100" value="70">
+        </label>
+        <label class="slider-row">
+          <span>SFX</span>
+          <input type="range" id="vol-sfx" min="0" max="100" value="80">
+        </label>
+        <label class="toggle-row">
+          <span>SCREEN SHAKE</span>
+          <input type="checkbox" id="opt-shake" checked>
+          <i class="toggle-pill"></i>
+        </label>
+        <button class="btn btn-primary" data-action="close-settings">DONE</button>
+      </div>
+    </section>
+
+    <!-- ============ PAUSE (modal) ============ -->
+    <section id="screen-pause" class="screen modal-screen" data-screen="pause">
+      <div class="modal-box">
+        <h2>PAUSED</h2>
+        <button class="btn btn-primary" data-action="resume">RESUME</button>
+        <button class="btn" data-action="restart">RESTART</button>
+        <button class="btn" data-action="settings">SETTINGS</button>
+        <button class="btn btn-danger" data-action="quit">QUIT TO MENU</button>
+      </div>
+    </section>
+
+    <!-- ============ VICTORY (modal) ============ -->
+    <section id="screen-victory" class="screen modal-screen" data-screen="victory">
+      <div class="modal-box victory-box">
+        <h2 class="victory-title">LEVEL COMPLETE!</h2>
+        <p id="victory-level-name"></p>
+        <div class="victory-stats">
+          <div class="vstat"><span class="vstat-label">COMPLETION</span><span id="v-pct" class="vstat-value">100%</span></div>
+          <div class="vstat"><span class="vstat-label">COINS</span><span id="v-coins" class="vstat-value">0/3</span></div>
+          <div class="vstat"><span class="vstat-label">BEST</span><span id="v-best" class="vstat-value">100%</span></div>
+          <div class="vstat"><span class="vstat-label">ATTEMPTS</span><span id="v-attempts" class="vstat-value">1</span></div>
+        </div>
+        <button class="btn btn-primary btn-big" data-action="continue">CONTINUE</button>
+      </div>
+    </section>
+
+    <!-- ============ LEVEL EDITOR ============ -->
+    <section id="screen-editor" class="screen" data-screen="editor">
+      <div id="editor-viewport"></div>   <!-- pointer surface over the canvas -->
+      <div id="ed-top"></div>            <!-- project controls -->
+      <div id="ed-left"></div>           <!-- tools -->
+      <div id="ed-right"></div>          <!-- properties -->
+      <div id="ed-bottom"></div>         <!-- object palette -->
+      <div id="ed-status"></div>         <!-- coords / zoom readout -->
+      <div id="ed-modals"></div>         <!-- settings / colours / music / load -->
+      <div id="ed-context"></div>        <!-- right-click menu -->
+      <div id="ed-toasts"></div>         <!-- transient notifications -->
+    </section>
+
+    <!-- Rotate-your-device overlay for portrait phones -->
+    <div id="rotate-overlay"><div class="rotate-msg">&#8634;<br>ROTATE YOUR DEVICE</div></div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
 </body>
 </html>
