@@ -14,5 +14,5 @@
  * Until real values are set, the game runs in fully local mode and the
  * account screen explains what to do.
  */
-export const SUPABASE_URL = 'https://ptbxwtkrncyesvrplzda.supabase.co/rest/v1/';
+export const SUPABASE_URL = 'https://ptbxwtkrncyesvrplzda.supabase.co';
 export const SUPABASE_KEY = 'sb_publishable_BDx2b3KC4FXnXpaJ0KK3MA_wIunZ_-S';
