@@ -24,6 +24,24 @@ const SUPABASE_JS = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.6/
 let client = null;
 let clientPromise = null;
 
+/* Community-level column sets. The full set needs
+ * supabase/upgrade-community-levels.sql; until it has run we detect the
+ * missing columns once and fall back so the browser keeps working
+ * (likes/song simply don't render). */
+const LEVEL_COLS_FULL =
+  'id, name, description, difficulty, song, downloads, likes, created_at, ' +
+  'owner:profiles!levels_owner_id_fkey(username, icon)';
+const LEVEL_COLS_LEGACY =
+  'id, name, description, difficulty, downloads, created_at, ' +
+  'owner:profiles!levels_owner_id_fkey(username, icon)';
+let hasCommunityColumns = null;   // null = unknown → probe on first query
+
+const DIFFICULTIES = ['Easy', 'Normal', 'Hard', 'Insane', 'Custom'];
+const MAX_LEVEL_BYTES = 262144;   // matches the DB check constraint (256 KB)
+
+const isMissingColumnError = (error, col) =>
+  typeof error === 'string' && error.includes(col) && /column|schema|exist/i.test(error);
+
 export function isConfigured() {
   return /^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(SUPABASE_URL) &&
          SUPABASE_KEY.length > 20 && !SUPABASE_KEY.startsWith('YOUR-');
@@ -202,28 +220,110 @@ export const Backend = {
     return run((sb) => sb.from('messages').delete().eq('id', id));
   },
 
-  /* ================================================= levels (future UI) ==== */
+  /* ================================================= levels (community) ==== */
 
-  listPublishedLevels(limit = 50) {
-    return run((sb) => sb.from('levels')
-      .select('id, name, description, difficulty, downloads, created_at, owner:profiles!levels_owner_id_fkey(username, icon)')
-      .eq('published', true)
-      .order('created_at', { ascending: false })
-      .limit(limit));
+  /**
+   * One page of the community browser.
+   * opts = { page, pageSize, search, sort: 'newest'|'popular'|'top'|'name' }
+   * → { data: { rows, total, hasExtras }, error }  (total = full match count)
+   */
+  async listPublishedLevels({ page = 0, pageSize = 24, search = '', sort = 'newest' } = {}) {
+    const query = (cols) => {
+      const extras = cols === LEVEL_COLS_FULL;
+      return run(async (sb) => {
+        let q = sb.from('levels')
+          .select(cols, { count: 'exact' })
+          .eq('published', true);
+        const s = search.trim().replace(/[\\%_]/g, '\\$&');   // no pattern injection
+        if (s) q = q.ilike('name', `%${s}%`);
+        const orders = {
+          newest: ['created_at', false],
+          popular: ['downloads', false],
+          top: [extras ? 'likes' : 'downloads', false],   // likes needs the upgrade
+          name: ['name', true],
+        };
+        const [col, ascending] = orders[sort] || orders.newest;
+        q = q.order(col, { ascending })
+          .order('id', { ascending: true })               // stable page order on ties
+          .range(page * pageSize, page * pageSize + pageSize - 1);
+        const { data, error, count } = await q;
+        return {
+          data: error ? null : { rows: data, total: count ?? 0, hasExtras: extras },
+          error,
+        };
+      });
+    };
+
+    if (hasCommunityColumns !== false) {
+      const res = await query(LEVEL_COLS_FULL);
+      if (!res.error) { hasCommunityColumns = true; return res; }
+      if (!isMissingColumnError(res.error, 'likes') && !isMissingColumnError(res.error, 'song')) return res;
+      hasCommunityColumns = false;   // upgrade SQL not run yet — degrade quietly
+    }
+    return query(LEVEL_COLS_LEGACY);
   },
 
-  publishLevel(ownerId, def) {
-    return run((sb) => sb.from('levels').insert({
-      owner_id: ownerId,
-      name: (def.name || 'UNTITLED').slice(0, 24),
-      description: (def.description || '').slice(0, 200),
-      difficulty: def.difficulty || 'Custom',
-      data: def,
-      published: true,
-    }).select().single());
-  },
-
+  /** The playable payload only — nothing else leaves the table. */
   downloadLevel(id) {
-    return run((sb) => sb.from('levels').select('data').eq('id', id).single());
+    return run((sb) => sb.from('levels')
+      .select('id, name, data, owner:profiles!levels_owner_id_fkey(username)')
+      .eq('id', id).single());
+  },
+
+  /** Fire-and-forget play counter (SECURITY DEFINER RPC — players cannot
+   *  update rows they don't own). Errors are ignored by callers. */
+  recordLevelDownload(id) {
+    return run((sb) => sb.rpc('record_level_download', { level_id: id }));
+  },
+
+  /**
+   * Publish (or re-publish) a level from the editor.
+   * Validates locally, strips editor-only state from the payload, and
+   * UPDATEs the existing row when this level was already published so
+   * re-uploads never create duplicates. meta = { name, description,
+   * difficulty, song }. → { data: { id }, error }
+   */
+  async publishLevel(ownerId, def, meta) {
+    const name = (meta.name || '').trim().toUpperCase().slice(0, 24);
+    const description = (meta.description || '').trim().slice(0, 200);
+    const difficulty = DIFFICULTIES.includes(meta.difficulty) ? meta.difficulty : 'Custom';
+    const song = (meta.song || '').trim().slice(0, 60);
+    if (!name) return { data: null, error: 'Give the level a name first.' };
+    if (!def || !Array.isArray(def.objects) || def.objects.length < 5) {
+      return { data: null, error: 'The level is too empty to publish — place at least 5 objects.' };
+    }
+    const data = structuredClone(def);
+    data.name = name;
+    data.description = description;
+    data.difficulty = difficulty;
+    delete data.editor;          // camera position is private editor state
+    delete data._modified;
+    delete data._publishedId;
+    if (JSON.stringify(data).length > MAX_LEVEL_BYTES) {
+      return { data: null, error: 'Level is too large to publish (limit 256 KB).' };
+    }
+
+    const row = { name, description, difficulty, data, published: true };
+    if (hasCommunityColumns !== false) row.song = song;
+
+    const attempt = async (r) => {
+      if (def._publishedId) {
+        const upd = await run((sb) => sb.from('levels')
+          .update(r).eq('id', def._publishedId).eq('owner_id', ownerId)
+          .select('id').maybeSingle());
+        if (upd.error || upd.data) return upd;
+        // previously-published row no longer exists — publish fresh below
+      }
+      return run((sb) => sb.from('levels')
+        .insert({ ...r, owner_id: ownerId }).select('id').single());
+    };
+
+    let res = await attempt(row);
+    if (res.error && 'song' in row && isMissingColumnError(res.error, 'song')) {
+      hasCommunityColumns = false;
+      delete row.song;
+      res = await attempt(row);
+    }
+    return res;
   },
 };

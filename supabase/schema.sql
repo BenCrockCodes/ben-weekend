@@ -115,15 +115,22 @@ create table if not exists public.levels (
   name        text not null check (char_length(name) between 1 and 24),
   description text not null default '' check (char_length(description) <= 200),
   difficulty  text not null default 'Custom',
-  data        jsonb not null,             -- the level definition (formatVersion 2)
+  song        text not null default '' check (char_length(song) <= 60),
+  data        jsonb not null              -- the level definition (formatVersion 2)
+              check (pg_column_size(data) <= 262144),   -- 256 KB cap
   published   boolean not null default false,
   downloads   integer not null default 0,
+  likes       integer not null default 0, -- future-ready rating counter
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
 
 create index if not exists levels_published_idx
   on public.levels (published, created_at desc);
+create index if not exists levels_downloads_idx
+  on public.levels (published, downloads desc);
+create index if not exists levels_likes_idx
+  on public.levels (published, likes desc);
 
 alter table public.levels enable row level security;
 
@@ -201,8 +208,25 @@ begin
 end;
 $$;
 
+-- Players can play levels they don't own, so they can't UPDATE the row's
+-- download counter themselves (least privilege). SECURITY DEFINER lets this
+-- function bump the counter for PUBLISHED levels only — nothing else.
+create or replace function public.record_level_download(level_id uuid)
+returns void
+language sql
+security definer
+set search_path = ''
+as $$
+  update public.levels
+     set downloads = downloads + 1
+   where id = level_id
+     and published;
+$$;
+
 revoke execute on function public.handle_new_user() from public, anon, authenticated;
 revoke execute on function public.touch_updated_at() from public, anon, authenticated;
+revoke execute on function public.record_level_download(uuid) from public;
+grant  execute on function public.record_level_download(uuid) to anon, authenticated;
 
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created

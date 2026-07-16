@@ -68,7 +68,7 @@
           </button>
           <button class="btn btn-big hub-btn" data-action="ugc">
             <span class="hub-icon">&#127760;</span>PLAY USER GENERATED LEVELS
-            <small>Community levels &middot; online soon</small>
+            <small>Browse &amp; play community creations</small>
           </button>
           <button class="btn btn-big hub-btn" data-action="mylevels">
             <span class="hub-icon">&#9998;</span>MY CREATED LEVELS
@@ -89,15 +89,30 @@
       </div>
     </section>
 
-    <!-- ============ USER GENERATED LEVELS (online: future) ============ -->
+    <!-- ============ USER GENERATED LEVELS (online) ============ -->
     <section id="screen-ugc" class="screen menu-screen" data-screen="ugc">
       <div class="menu-inner wide">
         <header class="screen-head">
           <button class="btn btn-back" data-action="play">&larr;</button>
           <h2>COMMUNITY LEVELS</h2>
         </header>
-        <input id="ugc-search" type="text" placeholder="Search community levels&hellip;" disabled>
-        <div id="ugc-grid"><!-- skeleton cards + status from ui.js --></div>
+        <div class="ugc-controls">
+          <input id="ugc-search" type="search" placeholder="Search community levels&hellip;"
+                 maxlength="24" autocomplete="off" aria-label="Search community levels">
+          <select id="ugc-sort" aria-label="Sort levels">
+            <option value="newest">NEWEST</option>
+            <option value="popular">MOST PLAYED</option>
+            <option value="top">TOP RATED</option>
+            <option value="name">A&ndash;Z</option>
+          </select>
+        </div>
+        <div id="ugc-scroll">
+          <div id="ugc-grid"><!-- level cards from ui.js --></div>
+          <div class="ugc-foot">
+            <p id="ugc-status" class="ugc-status" role="status"></p>
+            <button id="ugc-more" class="btn">LOAD MORE</button>
+          </div>
+        </div>
       </div>
     </section>
 

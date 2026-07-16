@@ -27,10 +27,17 @@ export class UI {
     this.$levelCards = document.getElementById('level-cards');
     this.$myLevelList = document.getElementById('mylevel-list');
     this.$ugcGrid = document.getElementById('ugc-grid');
+    this.$ugcSearch = document.getElementById('ugc-search');
+    this.$ugcSort = document.getElementById('ugc-sort');
+    this.$ugcScroll = document.getElementById('ugc-scroll');
+    this.$ugcStatus = document.getElementById('ugc-status');
+    this.$ugcMore = document.getElementById('ugc-more');
     this.$lbTable = document.getElementById('lb-table');
+    this.ugc = null;   // community browser state while the screen is open
 
     this._bindButtons();
     this._bindSettings();
+    this._bindUGC();
   }
 
   /* ------------------------------------------------ wiring ---- */
@@ -183,24 +190,165 @@ export class UI {
     return d.innerHTML;
   }
 
-  /* ------------------------------------------------ community (future) ---- */
+  /* ------------------------------------------------ community browser ---- */
 
-  populateUGC(state) {
-    this.$ugcGrid.innerHTML = '';
-    // skeleton cards make the future layout tangible
-    for (let i = 0; i < 6; i++) {
-      const sk = document.createElement('div');
-      sk.className = 'ugc-skel';
-      sk.style.animationDelay = `${i * 0.12}s`;
-      this.$ugcGrid.append(sk);
+  _bindUGC() {
+    let debounce = null;
+    this.$ugcSearch.addEventListener('input', () => {
+      clearTimeout(debounce);
+      debounce = setTimeout(() => {
+        if (!this.ugc) return;
+        const v = this.$ugcSearch.value.trim();
+        if (v === this.ugc.search) return;
+        this.ugc.search = v;
+        this._ugcLoad(true);
+      }, 300);
+    });
+    this.$ugcSort.addEventListener('change', () => {
+      if (!this.ugc) return;
+      this.ugc.sort = this.$ugcSort.value;
+      this._ugcLoad(true);
+    });
+    this.$ugcMore.addEventListener('click', () => this._ugcLoad(false));
+    // lazy loading: fetch the next page as the footer nears the viewport
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver((entries) => {
+        if (entries.some((e) => e.isIntersecting) &&
+            this.ugc && this.ugc.hasMore && !this.ugc.busy) {
+          this._ugcLoad(false);
+        }
+      }, { root: this.$ugcScroll, rootMargin: '200px' }).observe(this.$ugcMore);
     }
-    const note = document.createElement('p');
-    note.className = 'empty-note';
-    note.innerHTML = state && state.error
-      ? `⚠ ${state.error}`
-      : 'ONLINE LEVELS ARE COMING SOON.<br>Uploading, searching, rating and creator pages are on the roadmap — ' +
-        'the game already loads any shared level file through <b>MY LEVELS → editor → IMPORT</b>.';
-    this.$ugcGrid.append(note);
+  }
+
+  /** Open the community browser. ctx = { configured, fetch(opts), play(id) }. */
+  showUGC(ctx) {
+    this.ugc = {
+      ctx,
+      page: 0, total: 0, hasMore: false,
+      search: this.$ugcSearch.value.trim(),
+      sort: this.$ugcSort.value,
+      busy: false, gen: 0,
+    };
+    this.show('ugc');
+    this._ugcLoad(true);
+  }
+
+  async _ugcLoad(reset) {
+    const u = this.ugc;
+    if (!u || u.busy) return;
+    const grid = this.$ugcGrid;
+
+    if (!u.ctx.configured) {
+      grid.innerHTML = '';
+      grid.append(this._ugcNote(
+        'Online features are not configured yet.<br>' +
+        'See <b>SETUP.md</b> to enable accounts and community levels.'));
+      this.$ugcStatus.textContent = '';
+      this.$ugcMore.hidden = true;
+      return;
+    }
+
+    const gen = ++u.gen;   // stale responses (rapid search/sort changes) are dropped
+    u.busy = true;
+    if (reset) {
+      u.page = 0;
+      grid.innerHTML = '';
+      for (let i = 0; i < 6; i++) {
+        const sk = document.createElement('div');
+        sk.className = 'ugc-skel';
+        sk.style.animationDelay = `${i * 0.08}s`;
+        grid.append(sk);
+      }
+    }
+    this.$ugcMore.disabled = true;
+    this.$ugcStatus.textContent = 'LOADING…';
+
+    const res = await u.ctx.fetch({ page: u.page, pageSize: 24, search: u.search, sort: u.sort });
+    if (this.ugc !== u || gen !== u.gen) return;
+    u.busy = false;
+    this.$ugcMore.disabled = false;
+    if (reset) grid.innerHTML = '';
+
+    if (res.error) {
+      this.$ugcStatus.textContent = 'COULD NOT LOAD LEVELS';
+      if (reset) {
+        grid.append(this._ugcNote(`⚠ ${this._esc(res.error)}`, true));
+        this.$ugcMore.hidden = true;
+      }
+      return;   // page not advanced — LOAD MORE retries the same page
+    }
+
+    const { rows, total, hasExtras } = res.data;
+    u.total = total;
+    if (u.page === 0 && !rows.length) {
+      grid.append(this._ugcNote(u.search
+        ? `No levels matching "<b>${this._esc(u.search)}</b>".`
+        : 'No community levels yet.<br>Open the <b>EDITOR</b>, build something great and hit <b>PUBLISH</b> to be the first!'));
+    }
+    for (const row of rows) grid.append(this._ugcCard(row, hasExtras));
+
+    const shown = grid.querySelectorAll('.ugc-card').length;
+    u.page++;
+    u.hasMore = shown < total;
+    this.$ugcMore.hidden = !u.hasMore;
+    this.$ugcStatus.textContent =
+      total ? `SHOWING ${shown} OF ${total} LEVEL${total === 1 ? '' : 'S'}` : '';
+    // likes sorting only exists once the DB upgrade has run
+    const top = this.$ugcSort.querySelector('option[value="top"]');
+    if (top) top.disabled = !hasExtras;
+  }
+
+  _ugcCard(row, hasExtras) {
+    const card = document.createElement('article');
+    card.className = 'ugc-card';
+    const owner = row.owner || {};
+    const diff = row.difficulty || 'Custom';
+    const date = new Date(row.created_at).toLocaleDateString();
+    const fmt = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n || 0}`);
+    card.innerHTML = `
+      <div class="ugc-card-head">
+        <h3 class="ugc-name">${this._esc(row.name)}</h3>
+        <span class="ugc-diff diff-${diff.toLowerCase()}">${this._esc(diff.toUpperCase())}</span>
+      </div>
+      <p class="ugc-creator">
+        <span class="char-cube c${Number(owner.icon) || 0} ugc-cube"></span>${this._esc(owner.username || 'unknown')}
+      </p>
+      <p class="ugc-desc">${row.description ? this._esc(row.description) : '<i>No description</i>'}</p>
+      <div class="ugc-meta">
+        <span class="ugc-stat" title="Plays">&#9654; ${fmt(row.downloads)}</span>
+        ${hasExtras ? `<span class="ugc-stat" title="Likes">&#9829; ${fmt(row.likes)}</span>` : ''}
+        ${row.song ? `<span class="ugc-stat ugc-song" title="Song">&#9834; ${this._esc(row.song)}</span>` : ''}
+        <span class="ugc-date" title="Published">${date}</span>
+      </div>
+      <button class="btn btn-primary ugc-play">PLAY</button>`;
+    const play = card.querySelector('.ugc-play');
+    const go = async () => {
+      if (card.classList.contains('busy')) return;
+      card.classList.add('busy');
+      play.textContent = 'LOADING…';
+      const err = await this.ugc.ctx.play(row.id);
+      card.classList.remove('busy');
+      play.textContent = 'PLAY';
+      if (err) this.$ugcStatus.textContent = `⚠ ${err}`;
+    };
+    play.addEventListener('click', (e) => { e.stopPropagation(); go(); });
+    card.addEventListener('click', go);
+    return card;
+  }
+
+  _ugcNote(html, retry = false) {
+    const note = document.createElement('div');
+    note.className = 'empty-note ugc-note';
+    note.innerHTML = `<p>${html}</p>`;
+    if (retry) {
+      const b = document.createElement('button');
+      b.className = 'btn ugc-retry';
+      b.textContent = 'RETRY';
+      b.onclick = () => this._ugcLoad(true);
+      note.append(b);
+    }
+    return note;
   }
 
   /* ------------------------------------------------ leaderboards ---- */

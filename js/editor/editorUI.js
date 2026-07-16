@@ -8,6 +8,7 @@
 import { CATEGORIES, PALETTE, PALETTE_BY_ID, propsFor, paletteIdFor } from './editorObjects.js';
 import { LevelStore, EditorPrefs, exportLevelFile } from './storage.js';
 import { AudioManager } from '../audioManager.js';
+import { Backend } from '../backend/backend.js';
 
 /* tiny DOM helpers */
 const el = (tag, cls = '', html = '') => {
@@ -91,7 +92,7 @@ export class EditorUI {
       mk('COLOURS', 'Level colour palette', () => this.open('colors')),
       mk('MUSIC', 'Soundtrack', () => this.open('music')),
       mk('SETTINGS', 'Level settings', () => this.open('settings')),
-      mk('PUBLISH', 'Share online (future)', () => this.toast('Publishing to community servers arrives in a future update')),
+      mk('PUBLISH', 'Share this level with every player', () => this.open('publish')),
       el('span', 'ed-flex'),
       mk('EXIT', 'Back to the main menu', () => {
         if (this.editor.dirty && !window.confirm('Exit with unsaved changes?')) return;
@@ -469,6 +470,7 @@ export class EditorUI {
     else if (name === 'music') this._modalMusic(box);
     else if (name === 'load') this._modalLoad(box);
     else if (name === 'saveas') this._modalSaveAs(box);
+    else if (name === 'publish') this._modalPublish(box);
   }
 
   _modalHeader(box, title) {
@@ -713,6 +715,101 @@ export class EditorUI {
       }
     };
     box.append(el('div', 'ed-btnrow'), imp, file);
+  }
+
+  _modalPublish(box) {
+    this._modalHeader(box, 'PUBLISH TO COMMUNITY');
+    const d = this.editor.def;
+    const game = this.editor.game;
+    const profile = game.accountUI && game.accountUI.profile;
+
+    if (!Backend.isConfigured()) {
+      box.append(el('p', 'ed-hint',
+        'Online features are not configured — add your Supabase settings ' +
+        '(see <b>SETUP.md</b>) to enable community publishing.'));
+      return;
+    }
+    if (!game.user || !profile) {
+      box.append(el('p', 'ed-hint',
+        'Publishing needs an account so the level is linked to its creator.<br><br>' +
+        'Sign in from the <b>main menu</b> (gold chip, top right), then come back here.'));
+      return;
+    }
+    if (!d.objects.length) {
+      box.append(el('p', 'ed-hint', 'This level is empty — place some objects first!'));
+      return;
+    }
+
+    if (d._publishedId) {
+      box.append(el('p', 'ed-hint',
+        '&#10003; This level is already published — publishing again <b>updates</b> ' +
+        'the online copy instead of creating a duplicate.'));
+    }
+
+    const name = el('input'); name.value = d.name; name.maxLength = 24;
+    const desc = el('textarea'); desc.value = d.description || ''; desc.rows = 3; desc.maxLength = 200;
+    desc.placeholder = 'Tell players what to expect…';
+    const diff = el('select');
+    for (const opt of ['Easy', 'Normal', 'Hard', 'Insane', 'Custom']) {
+      const o = el('option', '', opt); o.value = opt; diff.append(o);
+    }
+    diff.value = d.difficulty || 'Custom';
+    // song info: auto-derived from the level's soundtrack, still editable
+    const builtIn = AudioManager.TRACK_INFO.find((t) => t.id === d.track);
+    const song = el('input'); song.maxLength = 60;
+    song.value = (d.customMusic && d.customMusic.title)
+      ? `${d.customMusic.title}${d.customMusic.artist ? ' — ' + d.customMusic.artist : ''}`.slice(0, 60)
+      : (builtIn ? builtIn.name : '');
+    const creator = el('input'); creator.value = profile.username; creator.disabled = true;
+    creator.title = 'Linked to your account automatically';
+
+    const status = el('p', 'ed-hint ed-pubstatus');
+    const go = el('button', 'ed-btn ed-accent ed-publishgo',
+      d._publishedId ? 'UPDATE PUBLISHED LEVEL' : 'PUBLISH');
+
+    go.onclick = async () => {
+      const meta = {
+        name: name.value, description: desc.value,
+        difficulty: diff.value, song: song.value,
+      };
+      if (!meta.name.trim()) { status.innerHTML = '<span class="err">The level needs a name.</span>'; return; }
+      if (d.objects.length < 5) {
+        status.innerHTML = '<span class="err">Too empty to publish — place at least 5 objects.</span>';
+        return;
+      }
+      go.disabled = true;
+      go.textContent = 'UPLOADING…';
+      status.textContent = 'Uploading level…';
+
+      // keep the local copy in sync with what goes online
+      d.name = meta.name.trim().toUpperCase().slice(0, 24) || 'UNTITLED';
+      d.description = meta.description.trim().slice(0, 200);
+      d.difficulty = meta.difficulty;
+
+      const { data, error } = await Backend.publishLevel(game.user.id, d, meta);
+      go.disabled = false;
+      if (error) {
+        go.textContent = d._publishedId ? 'UPDATE PUBLISHED LEVEL' : 'PUBLISH';
+        status.innerHTML = `<span class="err">${error}</span>`;
+        this.toast('Publish failed', true);
+        return;
+      }
+      d._publishedId = data.id;
+      this.editor.save();   // persists _publishedId locally so re-uploads update
+      this.onLevelChanged();
+      go.textContent = 'UPDATE PUBLISHED LEVEL';
+      status.innerHTML = '&#10003; <b>Published!</b> Your level is live in COMMUNITY LEVELS for everyone.';
+      this.toast(`Published "${d.name}" to the community!`);
+    };
+
+    box.append(
+      this._field('Name', name),
+      this._field('Description', desc),
+      this._field('Difficulty', diff),
+      this._field('Song', song),
+      this._field('Creator', creator),
+      go, status,
+    );
   }
 
   _modalSaveAs(box) {

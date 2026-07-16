@@ -170,8 +170,33 @@ export class Game {
   }
 
   showUGC() {
-    this.ui.populateUGC({ status: 'offline' });   // future: fetch from servers
-    this.ui.show('ugc');
+    this.ui.showUGC({
+      configured: Backend.isConfigured(),
+      fetch: (opts) => Backend.listPublishedLevels(opts),
+      play: (id) => this.playCommunity(id),
+    });
+  }
+
+  /** Download and run a community level. Returns an error string or null. */
+  async playCommunity(id) {
+    const { data, error } = await Backend.downloadLevel(id);
+    const def = data && data.data;
+    if (error || !def || !Array.isArray(def.objects)) {
+      return error || 'That level could not be loaded.';
+    }
+    Backend.recordLevelDownload(id);   // fire-and-forget play counter
+    if (data.owner && data.owner.username) def.creator = data.owner.username;
+    this.editor.deactivate();
+    this.level = this.levels.buildFromDef(preparePlayDef(def));
+    this.levelIndex = -1;
+    this.isCustom = true;
+    this.testReturnTo = 'ugc';
+    this.testStartX = null;
+    this.sessionAttempts = 0;
+    this.state = 'playing';
+    this.ui.show('hud');
+    this._startAttempt();
+    return null;
   }
 
   showMyLevels() {
@@ -352,6 +377,7 @@ export class Game {
     if (dest === 'editor') { this.openEditor(); return; }
     this.state = 'menu';
     if (dest === 'mylevels') { this.showMyLevels(); return; }
+    if (dest === 'ugc') { this.showUGC(); return; }
     this.showMainLevels();
   }
 
