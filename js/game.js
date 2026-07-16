@@ -142,7 +142,8 @@ export class Game {
   async _onAuth(user) {
     this.user = user;
     if (!user) { this.accountUI.setSession(null, null); return; }
-    const { data: profile } = await Backend.getProfile(user.id);
+    const { data: profile, error: profileError } = await Backend.ensureProfile(user);
+    if (profileError) console.warn('[auth] profile load/create failed:', profileError);
     this.accountUI.setSession(user, profile);
     // cloud save sync: merge both directions, then push the result
     const { data: cloud } = await Backend.getStats(user.id);

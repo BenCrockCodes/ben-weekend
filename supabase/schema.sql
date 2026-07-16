@@ -37,8 +37,15 @@ create policy "own profile update"
   using ((select auth.uid()) = id)
   with check ((select auth.uid()) = id);
 
--- no INSERT/DELETE policies: rows are created by the signup trigger and
--- removed by the auth.users cascade.
+-- users may create their OWN profile row — normally the signup trigger
+-- does this, but the game self-heals accounts whose signup ran while the
+-- trigger was absent (see Backend.ensureProfile in js/backend/backend.js)
+create policy "create own profile"
+  on public.profiles for insert
+  to authenticated
+  with check ((select auth.uid()) = id);
+
+-- no DELETE policy: rows are removed by the auth.users cascade.
 
 -- ---------------------------------------------------------- stats ----
 -- The player's full save (best %, attempts, coins) as one jsonb document.

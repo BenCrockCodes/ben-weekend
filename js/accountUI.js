@@ -45,7 +45,8 @@ export class AccountUI {
 
   _syncChip() {
     if (!Backend.isConfigured()) { this.$chip.textContent = '⚡ ONLINE SETUP'; return; }
-    this.$chip.textContent = this.profile ? `◈ ${this.profile.username}` : '◈ SIGN IN';
+    this.$chip.textContent = this.profile ? `◈ ${this.profile.username}`
+      : (this.user ? '◈ ACCOUNT' : '◈ SIGN IN');
   }
 
   open() {
@@ -55,7 +56,23 @@ export class AccountUI {
     if (!Backend.isConfigured()) return this._renderOffline(b);
     b.append(this._searchRow());
     if (this.user && this.profile) this._renderProfile(b, this.profile, true);
+    else if (this.user) this._renderProfileMissing(b);
     else this._renderAuth(b);
+  }
+
+  /** Signed in, but the profile row could not be loaded or created —
+   *  say so honestly instead of bouncing back to the sign-in form. */
+  _renderProfileMissing(b) {
+    const panel = el('div', 'acc-panel', `
+      <h3>SIGNED IN — PROFILE UNAVAILABLE</h3>
+      <p class="acc-hint">You are signed in as <b>${esc(this.user.email)}</b>, but your player
+      profile could not be loaded or created. If this keeps happening, run
+      <b>supabase/fix-missing-trigger.sql</b> in the Supabase SQL Editor,
+      then reload this page.</p>`);
+    const out = el('button', 'btn btn-danger acc-signout', 'SIGN OUT');
+    out.onclick = async () => { await Backend.signOut(); };
+    panel.append(out);
+    b.append(panel);
   }
 
   /* ---------------------------------------------- offline notice ---- */

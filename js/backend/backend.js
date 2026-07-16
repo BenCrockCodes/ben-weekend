@@ -111,7 +111,33 @@ export const Backend = {
   /* ================================================= profiles ==== */
 
   getProfile(userId) {
-    return run((sb) => sb.from('profiles').select('*').eq('id', userId).single());
+    return run((sb) => sb.from('profiles').select('*').eq('id', userId).maybeSingle());
+  },
+
+  /**
+   * The signed-in player's profile — created on the spot if signup ran
+   * while the DB trigger was missing. Mirrors handle_new_user(): use the
+   * signup username, fall back to a generated name if invalid or taken.
+   * (Client-side creation needs the "create own profile" RLS policy from
+   * supabase/fix-missing-trigger.sql.)
+   */
+  async ensureProfile(user) {
+    const found = await this.getProfile(user.id);
+    if (found.data || found.error) return found;
+    const meta = (user.user_metadata && user.user_metadata.username) || '';
+    const fallback = 'player_' + user.id.replace(/-/g, '').slice(0, 8);
+    const wanted = /^[A-Za-z0-9_]{3,16}$/.test(meta) ? meta : fallback;
+    let created = await run((sb) => sb.from('profiles')
+      .insert({ id: user.id, username: wanted }).select().single());
+    if (created.error && wanted !== fallback) {
+      created = await run((sb) => sb.from('profiles')
+        .insert({ id: user.id, username: fallback }).select().single());
+    }
+    if (!created.error) {
+      await run((sb) => sb.from('stats')
+        .upsert({ user_id: user.id }, { onConflict: 'user_id' }));
+    }
+    return created;
   },
 
   getProfileByUsername(username) {
