@@ -113,6 +113,10 @@ export class AudioManager {
 
   /** Browsers require a user gesture before audio — call this from input. */
   unlock() {
+    // Hover blips call this too, but only a real activation gesture
+    // (click / keydown / pointerup) may start audio — creating the context
+    // earlier makes Chrome log "The AudioContext was not allowed to start".
+    if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return;
     if (!this.ctx) {
       const AC = window.AudioContext || window.webkitAudioContext;
       this.ctx = new AC();

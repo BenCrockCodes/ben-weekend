@@ -58,7 +58,9 @@ export class Input {
   /** Touch / pointer jumping only applies on the canvas so UI buttons work. */
   bindPointer(canvas) {
     const down = (e) => { e.preventDefault(); this._touchHeld = true; this._press(); };
-    const up = () => { this._touchHeld = false; this._syncHeld(); };
+    // touch grants user activation on pointerup (not pointerdown), so give
+    // the AudioContext a second unlock chance when the tap ends
+    const up = () => { this._touchHeld = false; this._syncHeld(); this.onAnyInput && this.onAnyInput(); };
     canvas.addEventListener('pointerdown', down);
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);

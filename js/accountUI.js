@@ -135,10 +135,22 @@ export class AccountUI {
         ? await Backend.signIn({ email: email.value.trim(), password: pass.value })
         : await Backend.signUp({ email: email.value.trim(), password: pass.value, username: uname.value.trim() });
       submit.disabled = false;
+      if (mode === 'signup') console.log('[auth] signUp →', res.data, 'error:', res.error);
       if (res.error) { status.textContent = res.error; return; }
-      if (mode === 'signup' && res.data && !res.data.session) {
-        status.textContent = 'Account created! Check your email to confirm, then sign in.';
-        return;
+      if (mode === 'signup') {
+        const user = res.data && res.data.user;
+        if (!user) {   // success without a user should be impossible — never claim success on it
+          status.textContent = 'Sign-up failed: the server returned no user. Please try again.';
+          return;
+        }
+        if (!res.data.session) {
+          // GoTrue anti-enumeration: signing up with an already-registered
+          // email "succeeds" but returns a stub user with no identities
+          status.textContent = (user.identities && user.identities.length === 0)
+            ? 'This email is already registered — use SIGN IN instead.'
+            : 'Account created! Check your email to confirm, then sign in.';
+          return;
+        }
       }
       status.textContent = '';   // game._onAuth re-renders via setSession
     };

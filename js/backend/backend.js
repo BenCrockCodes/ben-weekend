@@ -48,6 +48,10 @@ function friendly(msg) {
   if (/failed to fetch|networkerror|load failed/i.test(msg)) {
     return 'Could not reach the server — check your connection (or the Supabase settings in backendConfig.js).';
   }
+  // gateway timeouts (e.g. auth 504s) surface as raw upstream text or "{}"
+  if (/upstream request timeout|gateway time-?out|^\{\}$/i.test(msg)) {
+    return 'The server timed out — please try again in a moment.';
+  }
   return msg;
 }
 
@@ -80,7 +84,12 @@ export const Backend = {
   signUp({ email, password, username }) {
     return run((sb) => sb.auth.signUp({
       email, password,
-      options: { data: { username } },   // display name only — never used for authorization
+      options: {
+        data: { username },              // display name only — never used for authorization
+        // confirmation-email links return to this site (the origin must be
+        // listed under Auth → URL Configuration → Redirect URLs, SETUP.md 1.3)
+        emailRedirectTo: location.origin,
+      },
     }));
   },
 
