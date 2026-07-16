@@ -15,4 +15,4 @@
  * account screen explains what to do.
  */
 export const SUPABASE_URL = 'https://ptbxwtkrncyesvrplzda.supabase.co';
-export const SUPABASE_KEY = 'sb_publishable_BDx2b3KC4FXnXpaJ0KK3MA_wIunZ_-S';
+export const SUPABASE_KEY = 're_JAiXdDwK_N1Rp1vXfa9JA8ktmh9u1RG7V';
