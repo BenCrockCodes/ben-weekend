@@ -182,3 +182,196 @@ tools/musicProxy.js      local Newgrounds import proxy (port 8642)
 Each level hides three coins — collected coins only bank when you finish the
 level. All levels and coins are verified completable by automated solvers
 running the real engine.
+
+prompt: 
+
+# NEOVOLT Supabase Authentication Debugging Task
+
+You are debugging the authentication system for my NEOVOLT web game.
+
+The game is a static HTML/CSS/JS ES module project hosted at:
+
+https://www.benfun.cc
+
+Backend:
+- Supabase Auth
+- Supabase Database
+- Supabase RLS
+- MailerSend SMTP for email authentication
+
+The problem:
+Users cannot create accounts.
+
+When clicking "Create Account":
+- The UI gets stuck showing "..."
+- The browser Network tab shows:
+
+Request:
+POST
+https://ptbxwtkrncyesvrplzda.supabase.co/auth/v1/signup
+
+Status:
+504 Gateway Timeout
+
+The request waits around 30 seconds before failing.
+
+Important observations:
+
+✅ Supabase project URL is correct.
+✅ Supabase publishable key is correct.
+✅ The request reaches Supabase.
+✅ Creating a user manually from Supabase Dashboard works instantly.
+✅ Confirm email has already been disabled for testing.
+✅ Therefore this is NOT likely a MailerSend SMTP issue.
+✅ Database tables exist.
+✅ Schema runs successfully.
+
+---
+
+## Browser console errors
+
+These appear:
+
+
+audioManager.js:144 The AudioContext was not allowed to start.
+It must be resumed (or created) after a user gesture on the page.
+
+
+This is probably unrelated but fix it if possible.
+
+Also:
+
+
+ShowOneChild.js:18 Uncaught ReferenceError:
+ActionableCoachmark is not defined
+
+
+and:
+
+
+ch-content-script-dend.js:
+Uncaught ReferenceError: showOneChild is not defined
+
+
+These may be browser extension errors, but verify they are not caused by the game.
+
+---
+
+## Supabase signup request payload
+
+The failed signup sends:
+
+```json
+{
+  "email": "bencrocker210@outlook.com",
+  "password": "testing123",
+  "data": {
+    "username": "Bencrock"
+  },
+  "code_challenge": null,
+  "code_challenge_method": null,
+  "gotrue_meta_security": {}
+}
+
+Notice that username is being sent as:
+
+data.username
+
+instead of the normal Supabase JS v2 format:
+
+options: {
+    data: {
+        username
+    }
+}
+
+Investigate whether this is causing issues.
+
+Database schema
+
+The schema contains:
+
+profiles table
+stats table
+messages table
+levels table
+
+There is a trigger:
+
+create trigger on_auth_user_created
+after insert on auth.users
+for each row execute function public.handle_new_user();
+
+The trigger function:
+
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  wanted text;
+begin
+  wanted := coalesce(new.raw_user_meta_data ->> 'username', '');
+
+  if wanted !~ '^[A-Za-z0-9_]{3,16}$' then
+    wanted := 'player_' || substr(replace(new.id::text, '-', ''), 1, 8);
+  end if;
+
+  begin
+    insert into public.profiles (id, username)
+    values (new.id, wanted);
+
+  exception when unique_violation then
+    insert into public.profiles (id, username)
+    values (
+      new.id,
+      'player_' || substr(replace(new.id::text, '-', ''), 1, 8)
+    );
+  end;
+
+  insert into public.stats (user_id)
+  values (new.id);
+
+  return new;
+end;
+$$;
+
+Investigate if this trigger is causing the 504.
+
+Potential concerns:
+
+SECURITY DEFINER
+search_path = ''
+auth.users trigger
+profile creation during signup
+What I need you to do
+
+Please inspect the entire authentication flow:
+
+Find the signup function in the frontend.
+Fix the Supabase JS v2 signup call if incorrect.
+Check how the Supabase client is initialized.
+Check if the trigger can block signup.
+Check whether the database function needs changing.
+Fix the AudioContext warning properly.
+Remove/fix any real JavaScript errors.
+Make sure email authentication works with Supabase + MailerSend.
+Provide exact code changes and where each change should be made.
+
+The final goal:
+
+A user should be able to:
+
+Open https://www.benfun.cc
+Click SIGN IN
+Create an account
+Supabase creates:
+auth.users row
+profiles row
+stats row
+User receives verification email through MailerSend if enabled
+User can log in successfully
+
+Do not rewrite the whole project. Diagnose and fix the existing implementation.
