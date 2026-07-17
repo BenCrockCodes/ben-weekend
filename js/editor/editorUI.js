@@ -10,19 +10,14 @@ import { LevelStore, EditorPrefs, exportLevelFile } from './storage.js';
 import { AudioManager } from '../audioManager.js';
 import { Backend } from '../backend/backend.js';
 
+import { hexToRgb, rgbToHex } from '../utils.js';
+
 /* tiny DOM helpers */
 const el = (tag, cls = '', html = '') => {
   const n = document.createElement(tag);
   if (cls) n.className = cls;
   if (html) n.innerHTML = html;
   return n;
-};
-const rgbToHex = (c) => '#' + c.map((v) => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
-const hexToRgb = (hex) => {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return null;
-  const n = parseInt(m[1], 16);
-  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 };
 
 const THEME_FIELDS = [
@@ -146,6 +141,20 @@ export class EditorUI {
       this.syncToggles();
     };
     bar.append(this.$gridBtn, this.$snapBtn, this.$stepBtn);
+
+    // zoom controls
+    bar.append(el('div', 'ed-tooldiv'));
+    const zoomIn = el('button', 'ed-tool', '+');
+    zoomIn.title = 'Zoom in';
+    zoomIn.onclick = () => this.editor.zoomBy(1.25);
+    const zoomOut = el('button', 'ed-tool', '−');
+    zoomOut.title = 'Zoom out';
+    zoomOut.onclick = () => this.editor.zoomBy(0.8);
+    const zoomFit = el('button', 'ed-tool', '⛶');
+    zoomFit.title = 'Reset zoom (100%)';
+    zoomFit.onclick = () => this.editor.zoomReset();
+    bar.append(zoomIn, zoomOut, zoomFit);
+
     this.syncTool();
     this.syncToggles();
   }
@@ -274,6 +283,16 @@ export class EditorUI {
       box.append(row);
     }
 
+    // trigger workflow hint: explain the group link right where it's edited
+    if (rec.t === 'trigger') {
+      box.append(el('p', 'ed-hint',
+        rec.kind === 'alpha'
+          ? 'Fades every object whose <b>Group</b> equals the target when the player passes this trigger. Hitboxes stay active while faded.'
+          : 'Moves every object whose <b>Group</b> equals the target when the player passes this trigger — hitboxes move too. Multiple move triggers on one group stack.'));
+    } else if (rec.group > 0) {
+      box.append(el('p', 'ed-hint', `In group <b>${rec.group}</b> — Move/Alpha triggers targeting that group will affect it.`));
+    }
+
     const row = el('div', 'ed-btnrow');
     const dup = el('button', 'ed-btn', 'DUPLICATE');
     dup.onclick = () => this.editor.duplicateSelection();
@@ -338,11 +357,9 @@ export class EditorUI {
     const items = this._paletteItems();
 
     if (!items.length) {
-      const msg = this.activeCat === 'triggers' && !this.search
-        ? 'Triggers arrive in a future update — colour, move and pulse triggers are on the roadmap.'
-        : this.activeCat === 'favorites' && !this.search
-          ? 'No favourites yet — click the ★ on any object.'
-          : 'Nothing here yet.';
+      const msg = this.activeCat === 'favorites' && !this.search
+        ? 'No favourites yet — click the ★ on any object.'
+        : 'Nothing here yet.';
       grid.append(el('p', 'ed-hint ed-palempty', msg));
       return;
     }

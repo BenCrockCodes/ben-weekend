@@ -138,6 +138,7 @@ export class Renderer {
     this.viewW = this.canvas.width / this.scale;
     this.solidCount = 0;
     this.glowCount = 0;
+    this.alphaMul = 1;   // global alpha multiplier (alpha-trigger group fades)
   }
 
   drawBackground(theme, camX, camY, time, pulse) {
@@ -169,6 +170,7 @@ export class Renderer {
     const d = this.solidData;
     let i = this.solidCount;
     const [r, g, b] = color;
+    alpha *= this.alphaMul;
     let x0, y0, x1, y1, x2, y2, x3, y3;
     if (rot === 0) {
       x0 = x;      y0 = y;
@@ -201,6 +203,7 @@ export class Renderer {
     const d = this.solidData;
     let i = this.solidCount;
     const [r, g, b] = color;
+    alpha *= this.alphaMul;
     const verts = [x1, y1, x2, y2, x3, y3];
     for (let v = 0; v < 6; v += 2) {
       d[i++] = verts[v]; d[i++] = verts[v + 1];
@@ -226,6 +229,7 @@ export class Renderer {
     const d = this.glowData;
     let i = this.glowCount;
     const [r, g, b] = color;
+    intensity *= this.alphaMul;
     const x0 = cx - radius, y0 = cy - radius, x1 = cx + radius, y1 = cy + radius;
     // x, y, u, v per corner; uv spans -1..1
     const verts = [

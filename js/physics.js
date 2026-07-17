@@ -1,19 +1,23 @@
 /**
  * physics.js — the fixed-timestep gameplay simulation.
  *
- * One Physics instance drives one player through one level. It never talks
- * to audio/UI directly; instead it fires events through the `events`
- * callback object supplied by game.js:
+ * One Physics instance drives one player through one level. Per-gamemode
+ * movement/tuning lives in gamemodes.js (MODES); this file owns the parts
+ * every mode shares: horizontal auto-scroll, collision resolution,
+ * interactive objects (pads/rings/portals/coins), triggers and win/lose.
+ *
+ * It never talks to audio/UI directly; instead it fires events through the
+ * `events` callback object supplied by game.js:
  *
  *   onJump, onLand, onDie, onPad(pad), onRing(ring), onPortal(portal),
  *   onCoin(coin), onWin
  */
 import { CONFIG } from './config.js';
 import { clamp, aabb, dist2 } from './utils.js';
-import { playerBox, resolveSolid, resolveSolidShip, resolvePlatform, hitsHazard } from './collision.js';
+import { playerBox, playerHurtBox, resolveSolid, resolveSolidFly, resolvePlatform, hitsHazard } from './collision.js';
+import { MODES, modeOf } from './gamemodes.js';
 
 const P = CONFIG.PHYS;
-const SHIP = CONFIG.SHIP;
 
 export class Physics {
   constructor(events) {
@@ -32,40 +36,35 @@ export class Physics {
     if (pl.dead || pl.won) return;
 
     input.tick(dt);
+    const mode = modeOf(pl);
+    const dir = pl.gravityDir;
 
     /* ---------- horizontal: constant auto-scroll ---------- */
     const speed = lv.speed * pl.speedMul;
     pl.x += speed * dt;
 
     /* ---------- vertical integration (per gamemode) ---------- */
-    const dir = pl.gravityDir;
     const prevY = pl.y;
-    if (pl.mode === 'ship') {
-      // bang-bang thrust: hold = accelerate against gravity, release = fall
-      pl.thrust = input.held;
-      pl.vy += SHIP.ACC * (input.held ? 1 : -1) * dir * dt;
-      pl.vy = clamp(pl.vy, -SHIP.MAX_V, SHIP.MAX_V);
-    } else {
-      pl.thrust = false;
-      pl.vy -= P.GRAVITY * dir * dt;
-      pl.vy = clamp(pl.vy, -P.MAX_FALL, P.MAX_FALL);
-    }
+    mode.integrate(pl, input, dt, { dir, speed });
     pl.y += pl.vy * dt;
 
     let grounded = false;
     const qx0 = pl.x - 2, qx1 = pl.x + pl.size + 2;
+    const style = mode.collision;
 
-    // the world floor (the ship slides along it in either gravity)
-    if ((dir === 1 || pl.mode === 'ship') && pl.y <= 0 && pl.vy <= 0) {
+    // the world floor (fly + wave modes ride it in either gravity)
+    if (pl.y <= 0 && pl.vy <= 0 && (dir === 1 || style !== 'cube')) {
       pl.y = 0; pl.vy = 0; grounded = true;
     }
 
-    // solid blocks: land/slide or die
+    // solid blocks: land/slide or die (the wave dies on ANY solid contact)
     let died = false;
     lv.eachSolid(qx0, qx1, (s) => {
       if (died) return;
-      if (pl.mode === 'ship') {
-        const res = resolveSolidShip(pl, s);
+      if (style === 'wave') {
+        if (aabb(playerHurtBox(pl), s)) died = true;
+      } else if (style === 'fly') {
+        const res = resolveSolidFly(pl, s);
         if (res === 'floor') { pl.vy = 0; grounded = true; }
         else if (res === 'ceil') { pl.vy = 0; }
         else if (res === 'die') died = true;
@@ -77,15 +76,18 @@ export class Physics {
     });
     if (died) return this._die();
 
-    // one-way platforms: land only
-    lv.eachPlatform(qx0, qx1, (p) => {
-      if (resolvePlatform(pl, p, dir, prevY) === 'land') {
-        pl.vy = 0; grounded = true;
-      }
-    });
+    // one-way platforms: land only (the wave passes straight through)
+    if (style !== 'wave') {
+      lv.eachPlatform(qx0, qx1, (p) => {
+        if (resolvePlatform(pl, p, dir, prevY) === 'land') {
+          pl.vy = 0; grounded = true;
+        }
+      });
+    }
 
     const justLanded = grounded && !pl.onGround;
     pl.onGround = grounded;
+    if (grounded) pl.holdT = 0;          // landing always ends a robot boost
     if (justLanded) this.events.onLand();
 
     /* ---------- hazards ---------- */
@@ -104,6 +106,7 @@ export class Physics {
         pad.used = true;
         pl.vy = P.PAD_V * dir;
         pl.onGround = false;
+        pl.holdT = 0;
         this.events.onPad(pad);
       }
     });
@@ -115,6 +118,7 @@ export class Physics {
         ring.used = true;
         this.input.consumeJump();
         pl.vy = P.RING_V * dir;
+        pl.holdT = 0;
         this.events.onRing(ring);
       }
     });
@@ -135,13 +139,8 @@ export class Physics {
       }
     });
 
-    /* ---------- jumping — cube only (the ship flies continuously) ---------- */
-    if (pl.mode === 'cube' && pl.onGround && (this.input.jumpQueued || this.input.held)) {
-      this.input.consumeJump();
-      pl.vy = P.JUMP_V * dir;
-      pl.onGround = false;
-      this.events.onJump();
-    }
+    /* ---------- mode-specific jumping ---------- */
+    if (mode.tryJump) mode.tryJump(pl, input, this.events, dir);
 
     pl.updateRotation(dt);
 
@@ -163,19 +162,23 @@ export class Physics {
         pl.speedMul = CONFIG.SPEEDS[portal.value] || 1;
         break;
       case 'size': {
-        // keep the cube's bottom edge in place while resizing
+        // keep the player's bottom edge in place while resizing
         const newSize = portal.value === 'mini' ? CONFIG.PLAYER.MINI_SIZE : CONFIG.PLAYER.SIZE;
         if (pl.gravityDir === -1) pl.y += pl.size - newSize;
         pl.size = newSize;
         break;
       }
-      case 'mode':
-        // cube ↔ ship: keep (capped) momentum so transitions feel smooth
-        pl.mode = portal.value === 'ship' ? 'ship' : 'cube';
-        pl.vy = clamp(pl.vy, -SHIP.ENTER_V_CAP, SHIP.ENTER_V_CAP);
+      case 'mode': {
+        // any gamemode → any gamemode: momentum is capped by the TARGET
+        // mode so transitions feel smooth and predictable
+        const next = MODES[portal.value] ? portal.value : 'cube';
+        pl.setMode(next);   // keeps the lethal-hitbox margin in sync
+        pl.vy = clamp(pl.vy, -MODES[next].enterCap, MODES[next].enterCap);
         pl.rotation = 0;
+        pl.holdT = 0;
         pl.onGround = false;
         break;
+      }
     }
   }
 

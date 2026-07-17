@@ -10,16 +10,16 @@
 import { CONFIG } from './config.js';
 import { aabb, circleBox } from './utils.js';
 
-const SHRINK = CONFIG.PLAYER.HITBOX_SHRINK;
-
 /** Full-size player box — used for landings, pads, portals. */
 export function playerBox(player) {
   return { x: player.x, y: player.y, w: player.size, h: player.size };
 }
 
-/** Shrunk player box — used for lethal checks (fairness margin). */
+/** Shrunk player box — used for lethal checks (fairness margin).
+ *  The shrink factor is per-gamemode (the wave's dart is far smaller than
+ *  a block) and lives on the player, set on every mode change. */
 export function playerHurtBox(player) {
-  const s = player.size * SHRINK;
+  const s = player.size * (player.hurtShrink ?? CONFIG.PLAYER.HITBOX_SHRINK);
   return { x: player.x + s, y: player.y + s,
            w: player.size - s * 2, h: player.size - s * 2 };
 }
@@ -75,12 +75,12 @@ export function resolvePlatform(player, plat, dir, prevY) {
 }
 
 /**
- * Ship vs solid block: unlike the cube, the ship SLIDES along both block
- * tops (moving down) and block undersides (moving up) regardless of gravity
- * direction — only side clips are lethal. Returns 'floor', 'ceil', 'die'
- * or null.
+ * Flying modes (ship, UFO) vs solid block: unlike the cube, they SLIDE
+ * along both block tops (moving down) and block undersides (moving up)
+ * regardless of gravity direction — only side clips are lethal.
+ * Returns 'floor', 'ceil', 'die' or null.
  */
-export function resolveSolidShip(player, solid) {
+export function resolveSolidFly(player, solid) {
   const pb = playerBox(player);
   if (!aabb(pb, solid)) return null;
 

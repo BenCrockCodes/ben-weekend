@@ -20,16 +20,8 @@ export const CONFIG = {
     ROT_SPEED: 420,         // airborne spin (deg/s)
   },
 
-  /* ---- ship gamemode ---- */
-  SHIP: {
-    ACC: 45,                // vertical acceleration, both thrust and fall (blocks/s^2)
-    MAX_V: 13,              // vertical speed cap (blocks/s)
-    TILT: 2.8,              // degrees of visual tilt per unit of vy
-    TILT_MAX: 42,           // tilt clamp (deg)
-    ENTER_V_CAP: 8,         // |vy| cap when passing through a mode portal
-  },
-
   /* ---- player ---- */
+  /* (per-gamemode movement tuning lives in js/gamemodes.js) */
   PLAYER: {
     SIZE: 1,                // cube edge length (blocks)
     MINI_SIZE: 0.6,         // size after a mini portal

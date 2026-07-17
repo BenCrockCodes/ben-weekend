@@ -27,13 +27,11 @@ let clientPromise = null;
 /* Community-level column sets. The full set needs
  * supabase/upgrade-community-levels.sql; until it has run we detect the
  * missing columns once and fall back so the browser keeps working
- * (likes/song simply don't render). */
-const LEVEL_COLS_FULL =
-  'id, name, description, difficulty, song, downloads, likes, created_at, ' +
-  'owner:profiles!levels_owner_id_fkey(username, icon)';
-const LEVEL_COLS_LEGACY =
-  'id, name, description, difficulty, downloads, created_at, ' +
-  'owner:profiles!levels_owner_id_fkey(username, icon)';
+ * (likes/song simply don't render). A creator filter needs an INNER join
+ * on the owner profile so the filter applies to the level rows. */
+const levelCols = (extras, innerOwner) =>
+  `id, name, description, difficulty, ${extras ? 'song, downloads, likes' : 'downloads'}, created_at, ` +
+  `owner:profiles!levels_owner_id_fkey${innerOwner ? '!inner' : ''}(username, icon)`;
 let hasCommunityColumns = null;   // null = unknown → probe on first query
 
 const DIFFICULTIES = ['Easy', 'Normal', 'Hard', 'Insane', 'Custom'];
@@ -182,12 +180,13 @@ export const Backend = {
 
   /**
    * Merge a local save with a cloud save — progress is never lost in
-   * either direction: best/attempts take the max, unlocks and coins union.
+   * either direction: best/attempts take the max, coins union, and the
+   * recently-played history unions by level keeping the latest timestamp.
    */
   mergeSaves(local, cloud) {
-    if (!cloud || !cloud.levels) return local;
+    if (!cloud) return local;
     const merged = structuredClone(local);
-    for (const [id, c] of Object.entries(cloud.levels)) {
+    for (const [id, c] of Object.entries(cloud.levels || {})) {
       const l = merged.levels[id] || { best: 0, coins: [false, false, false], attempts: 0, completed: false };
       merged.levels[id] = {
         best: Math.max(l.best || 0, c.best || 0),
@@ -196,7 +195,16 @@ export const Backend = {
         coins: [0, 1, 2].map((i) => !!((l.coins && l.coins[i]) || (c.coins && c.coins[i]))),
       };
     }
-    return merged;   // settings stay local (per-device preference)
+    if (Array.isArray(cloud.recent)) {
+      const byId = new Map();
+      for (const r of [...(merged.recent || []), ...cloud.recent]) {
+        if (!r || !r.id) continue;
+        const prev = byId.get(r.id);
+        if (!prev || (r.at || 0) > (prev.at || 0)) byId.set(r.id, r);
+      }
+      merged.recent = [...byId.values()].sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, 20);
+    }
+    return merged;   // settings/customisation stay local (per-device)
   },
 
   /* ================================================= messages ==== */
@@ -223,44 +231,48 @@ export const Backend = {
   /* ================================================= levels (community) ==== */
 
   /**
-   * One page of the community browser.
-   * opts = { page, pageSize, search, sort: 'newest'|'popular'|'top'|'name' }
+   * One page of the community browser / search.
+   * opts = { page, pageSize, search, creator, difficulty,
+   *          sort: 'newest'|'popular'|'top'|'name' }
    * → { data: { rows, total, hasExtras }, error }  (total = full match count)
    */
-  async listPublishedLevels({ page = 0, pageSize = 24, search = '', sort = 'newest' } = {}) {
-    const query = (cols) => {
-      const extras = cols === LEVEL_COLS_FULL;
-      return run(async (sb) => {
-        let q = sb.from('levels')
-          .select(cols, { count: 'exact' })
-          .eq('published', true);
-        const s = search.trim().replace(/[\\%_]/g, '\\$&');   // no pattern injection
-        if (s) q = q.ilike('name', `%${s}%`);
-        const orders = {
-          newest: ['created_at', false],
-          popular: ['downloads', false],
-          top: [extras ? 'likes' : 'downloads', false],   // likes needs the upgrade
-          name: ['name', true],
-        };
-        const [col, ascending] = orders[sort] || orders.newest;
-        q = q.order(col, { ascending })
-          .order('id', { ascending: true })               // stable page order on ties
-          .range(page * pageSize, page * pageSize + pageSize - 1);
-        const { data, error, count } = await q;
-        return {
-          data: error ? null : { rows: data, total: count ?? 0, hasExtras: extras },
-          error,
-        };
-      });
-    };
+  async listPublishedLevels({ page = 0, pageSize = 24, search = '', sort = 'newest',
+                              creator = '', difficulty = '' } = {}) {
+    const esc = (v) => v.trim().replace(/[\\%_]/g, '\\$&');   // no pattern injection
+    const wantCreator = !!creator.trim();
+
+    const query = (extras) => run(async (sb) => {
+      let q = sb.from('levels')
+        .select(levelCols(extras, wantCreator), { count: 'exact' })
+        .eq('published', true);
+      const s = esc(search);
+      if (s) q = q.ilike('name', `%${s}%`);
+      if (wantCreator) q = q.ilike('owner.username', `%${esc(creator)}%`);
+      if (DIFFICULTIES.includes(difficulty)) q = q.eq('difficulty', difficulty);
+      const orders = {
+        newest: ['created_at', false],
+        popular: ['downloads', false],
+        top: [extras ? 'likes' : 'downloads', false],   // likes needs the upgrade
+        name: ['name', true],
+      };
+      const [col, ascending] = orders[sort] || orders.newest;
+      q = q.order(col, { ascending })
+        .order('id', { ascending: true })               // stable page order on ties
+        .range(page * pageSize, page * pageSize + pageSize - 1);
+      const { data, error, count } = await q;
+      return {
+        data: error ? null : { rows: data, total: count ?? 0, hasExtras: extras },
+        error,
+      };
+    });
 
     if (hasCommunityColumns !== false) {
-      const res = await query(LEVEL_COLS_FULL);
+      const res = await query(true);
       if (!res.error) { hasCommunityColumns = true; return res; }
       if (!isMissingColumnError(res.error, 'likes') && !isMissingColumnError(res.error, 'song')) return res;
       hasCommunityColumns = false;   // upgrade SQL not run yet — degrade quietly
     }
-    return query(LEVEL_COLS_LEGACY);
+    return query(false);
   },
 
   /** The playable payload only — nothing else leaves the table. */

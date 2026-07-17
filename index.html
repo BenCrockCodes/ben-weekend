@@ -44,37 +44,103 @@
       <div class="menu-inner">
         <h1 id="logo">NEO<span>VOLT</span></h1>
         <p id="tagline">A NEON RHYTHM PLATFORMER</p>
-        <nav class="menu-buttons">
-          <button class="btn btn-big btn-primary" data-action="play">PLAY</button>
-          <button class="btn btn-big" data-action="character">CHARACTER SELECT</button>
-          <button class="btn btn-big" data-action="settings">SETTINGS</button>
-          <button class="btn btn-big" data-action="leaderboards">LEADERBOARDS</button>
+        <nav class="menu-orbit" aria-label="Main menu">
+          <button class="orb orb-side" data-action="character">
+            <span class="orb-icon" aria-hidden="true">&#9671;</span>
+            <span class="orb-label">CHARACTER</span>
+          </button>
+          <button class="orb orb-main" data-action="mainlevels">
+            <span class="orb-icon" aria-hidden="true">&#9654;</span>
+            <span class="orb-label">PLAY</span>
+            <small>MAIN LEVELS</small>
+          </button>
+          <button class="orb orb-side" data-action="community">
+            <span class="orb-icon" aria-hidden="true">&#127760;</span>
+            <span class="orb-label">COMMUNITY</span>
+          </button>
         </nav>
+        <div class="menu-corner">
+          <button class="btn corner-btn" data-action="settings">&#9881; SETTINGS</button>
+          <button class="btn corner-btn" data-action="leaderboards">&#8801; STATS</button>
+        </div>
         <p id="menu-hint">SPACE / W / &uarr; TO JUMP &nbsp;&middot;&nbsp; TAP ON MOBILE</p>
       </div>
     </section>
 
-    <!-- ============ PLAY HUB ============ -->
-    <section id="screen-playhub" class="screen menu-screen" data-screen="playhub">
+    <!-- ============ COMMUNITY HUB ============ -->
+    <section id="screen-community" class="screen menu-screen" data-screen="community">
       <div class="menu-inner">
         <header class="screen-head">
           <button class="btn btn-back" data-action="menu">&larr;</button>
-          <h2>PLAY</h2>
+          <h2>COMMUNITY</h2>
         </header>
         <nav class="menu-buttons hub-buttons">
-          <button class="btn btn-big btn-primary hub-btn" data-action="mainlevels">
-            <span class="hub-icon">&#9733;</span>PLAY MAIN LEVELS
-            <small>The official NEOVOLT campaign</small>
-          </button>
-          <button class="btn btn-big hub-btn" data-action="ugc">
-            <span class="hub-icon">&#127760;</span>PLAY USER GENERATED LEVELS
-            <small>Browse &amp; play community creations</small>
+          <button class="btn btn-big hub-btn" data-action="search">
+            <span class="hub-icon">&#128269;</span>SEARCH LEVELS
+            <small>Find levels by name, creator or difficulty</small>
           </button>
           <button class="btn btn-big hub-btn" data-action="mylevels">
-            <span class="hub-icon">&#9998;</span>MY CREATED LEVELS
-            <small>Build, edit and playtest your own</small>
+            <span class="hub-icon">&#9998;</span>CREATE LEVEL
+            <small>Build, edit, playtest and upload your own</small>
+          </button>
+          <button class="btn btn-big hub-btn" data-action="ugc">
+            <span class="hub-icon">&#127760;</span>ALL UPLOADED LEVELS
+            <small>Browse everything the community has published</small>
+          </button>
+          <button class="btn btn-big hub-btn" data-action="recent">
+            <span class="hub-icon">&#8635;</span>RECENTLY PLAYED
+            <small>Jump back into levels you played before</small>
           </button>
         </nav>
+      </div>
+    </section>
+
+    <!-- ============ SEARCH LEVELS ============ -->
+    <section id="screen-search" class="screen menu-screen" data-screen="search">
+      <div class="menu-inner wide">
+        <header class="screen-head">
+          <button class="btn btn-back" data-action="community">&larr;</button>
+          <h2>SEARCH LEVELS</h2>
+        </header>
+        <div id="search-scroll">
+          <div id="search-grid"></div>
+          <div class="ugc-foot">
+            <p id="search-status" class="ugc-status" role="status"></p>
+            <button id="search-more" class="btn" hidden>LOAD MORE</button>
+          </div>
+        </div>
+        <!-- filter bar: designed so future filters (song, length, rating…)
+             are one more .search-filter block -->
+        <form id="search-filters" class="search-filters">
+          <label class="search-filter">
+            <span>NAME</span>
+            <input id="sf-name" type="search" placeholder="Level name&hellip;" maxlength="24" autocomplete="off">
+          </label>
+          <label class="search-filter">
+            <span>CREATOR</span>
+            <input id="sf-creator" type="search" placeholder="Creator&hellip;" maxlength="16" autocomplete="off">
+          </label>
+          <label class="search-filter">
+            <span>DIFFICULTY</span>
+            <select id="sf-difficulty">
+              <option value="">ANY</option>
+              <option>Easy</option><option>Normal</option>
+              <option>Hard</option><option>Insane</option><option>Custom</option>
+            </select>
+          </label>
+          <button type="submit" class="btn btn-primary search-go">SEARCH</button>
+        </form>
+      </div>
+    </section>
+
+    <!-- ============ RECENTLY PLAYED ============ -->
+    <section id="screen-recent" class="screen menu-screen" data-screen="recent">
+      <div class="menu-inner wide">
+        <header class="screen-head">
+          <button class="btn btn-back" data-action="community">&larr;</button>
+          <h2>RECENTLY PLAYED</h2>
+        </header>
+        <div id="recent-list"></div>
       </div>
     </section>
 
@@ -82,7 +148,7 @@
     <section id="screen-levels" class="screen menu-screen" data-screen="levels">
       <div class="menu-inner wide">
         <header class="screen-head">
-          <button class="btn btn-back" data-action="play">&larr;</button>
+          <button class="btn btn-back" data-action="menu">&larr;</button>
           <h2>MAIN LEVELS</h2>
         </header>
         <div id="level-cards"><!-- populated by ui.js --></div>
@@ -93,8 +159,8 @@
     <section id="screen-ugc" class="screen menu-screen" data-screen="ugc">
       <div class="menu-inner wide">
         <header class="screen-head">
-          <button class="btn btn-back" data-action="play">&larr;</button>
-          <h2>COMMUNITY LEVELS</h2>
+          <button class="btn btn-back" data-action="community">&larr;</button>
+          <h2>ALL UPLOADED LEVELS</h2>
         </header>
         <div class="ugc-controls">
           <input id="ugc-search" type="search" placeholder="Search community levels&hellip;"
@@ -120,8 +186,8 @@
     <section id="screen-mylevels" class="screen menu-screen" data-screen="mylevels">
       <div class="menu-inner wide">
         <header class="screen-head">
-          <button class="btn btn-back" data-action="play">&larr;</button>
-          <h2>MY LEVELS</h2>
+          <button class="btn btn-back" data-action="community">&larr;</button>
+          <h2>CREATE LEVEL</h2>
           <button class="btn btn-primary" data-action="new-level">+ CREATE NEW</button>
         </header>
         <div id="mylevel-list"><!-- populated by ui.js --></div>
@@ -151,22 +217,14 @@
       </div>
     </section>
 
-    <!-- ============ CHARACTER SELECT (placeholder) ============ -->
+    <!-- ============ CHARACTER CUSTOMISATION ============ -->
     <section id="screen-character" class="screen menu-screen" data-screen="character">
-      <div class="menu-inner">
+      <div class="menu-inner wide">
         <header class="screen-head">
           <button class="btn btn-back" data-action="menu">&larr;</button>
           <h2>CHARACTER</h2>
         </header>
-        <div id="char-grid">
-          <div class="char-cell selected"><div class="char-cube c0"></div></div>
-          <div class="char-cell locked"><div class="char-cube c1"></div></div>
-          <div class="char-cell locked"><div class="char-cube c2"></div></div>
-          <div class="char-cell locked"><div class="char-cube c3"></div></div>
-          <div class="char-cell locked"><div class="char-cube c4"></div></div>
-          <div class="char-cell locked"><div class="char-cube c5"></div></div>
-        </div>
-        <p class="soon-note">CUSTOMIZATION COMING SOON</p>
+        <div id="char-body"><!-- rendered by characterUI.js --></div>
       </div>
     </section>
 

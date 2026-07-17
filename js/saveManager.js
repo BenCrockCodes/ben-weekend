@@ -9,10 +9,15 @@ import { CONFIG } from './config.js';
 import { clamp } from './utils.js';
 
 const DEFAULTS = () => ({
-  version: 1,
+  version: 2,
   levels: {},          // id → { best, coins:[bool,bool,bool], attempts, completed }
   settings: { music: 0.7, sfx: 0.8, shake: true },
-  character: 0,        // future: selected cube skin
+  custom: {            // character customisation (see js/gamemodes.js MODE_IDS)
+    primary: '#46e6f5',
+    secondary: '#f0509e',
+    icons: { cube: 0, ship: 0, ufo: 0, wave: 0, robot: 0 },
+  },
+  recent: [],          // recently played: newest-first {type, id, name, creator, at}
   achievements: [],    // future
 });
 
@@ -27,8 +32,18 @@ export class SaveManager {
       const raw = localStorage.getItem(CONFIG.SAVE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        // shallow-merge over defaults so new fields appear after updates
-        this.data = { ...DEFAULTS(), ...parsed, settings: { ...DEFAULTS().settings, ...(parsed.settings || {}) } };
+        const d = DEFAULTS();
+        // merge over defaults so new fields appear after updates
+        this.data = {
+          ...d, ...parsed,
+          settings: { ...d.settings, ...(parsed.settings || {}) },
+          custom: {
+            ...d.custom, ...(parsed.custom || {}),
+            icons: { ...d.custom.icons, ...((parsed.custom || {}).icons || {}) },
+          },
+          recent: Array.isArray(parsed.recent) ? parsed.recent : [],
+        };
+        delete this.data.character;   // superseded by custom.icons (v2)
       }
     } catch (e) {
       console.warn('Save data unreadable, starting fresh.', e);
@@ -52,12 +67,31 @@ export class SaveManager {
     return this.data.levels[id];
   }
 
-  /** Level N is unlocked when it's first, or level N-1 is completed. */
-  isUnlocked(index) {
-    if (index <= 0) return true;
-    const prev = this.data.levels[CONFIG.LEVEL_LIST[index - 1]];
-    return !!(prev && prev.completed);
+  /** Every official level is always playable — no progression gating. */
+  isUnlocked() { return true; }
+
+  /* ---- character customisation ---- */
+
+  get custom() { return this.data.custom; }
+
+  setCustom(patch) {
+    this.data.custom = {
+      ...this.data.custom, ...patch,
+      icons: { ...this.data.custom.icons, ...(patch.icons || {}) },
+    };
+    this.save();
   }
+
+  /* ---- recently played ---- */
+
+  /** Record a play (newest first, deduped by id, capped at 20). */
+  recordRecent(entry) {
+    const rec = { ...entry, at: Date.now() };
+    this.data.recent = [rec, ...this.data.recent.filter((r) => r.id !== rec.id)].slice(0, 20);
+    this.save();
+  }
+
+  get recent() { return this.data.recent; }
 
   recordAttempt(id) {
     this.level(id).attempts++;

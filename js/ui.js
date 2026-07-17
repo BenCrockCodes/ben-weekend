@@ -33,11 +33,18 @@ export class UI {
     this.$ugcStatus = document.getElementById('ugc-status');
     this.$ugcMore = document.getElementById('ugc-more');
     this.$lbTable = document.getElementById('lb-table');
-    this.ugc = null;   // community browser state while the screen is open
+    this.$searchGrid = document.getElementById('search-grid');
+    this.$searchScroll = document.getElementById('search-scroll');
+    this.$searchStatus = document.getElementById('search-status');
+    this.$searchMore = document.getElementById('search-more');
+    this.$recentList = document.getElementById('recent-list');
+    this.ugc = null;      // community browser state while the screen is open
+    this.searchCtx = null; // search page state
 
     this._bindButtons();
     this._bindSettings();
     this._bindUGC();
+    this._bindSearch();
   }
 
   /* ------------------------------------------------ wiring ---- */
@@ -49,14 +56,16 @@ export class UI {
       this.actions.uiSound('click');
       const a = btn.dataset.action;
       switch (a) {
-        case 'play': this.show('playhub'); break;
         case 'menu': this.show('menu'); break;
+        case 'community': this.show('community'); break;
         case 'mainlevels': this.actions.showMainLevels(); break;
         case 'ugc': this.actions.showUGC(); break;
+        case 'search': this.actions.showSearch(); break;
+        case 'recent': this.actions.showRecent(); break;
         case 'mylevels': this.actions.showMyLevels(); break;
         case 'leaderboards': this.actions.showLeaderboards(); break;
         case 'new-level': this.actions.newCustomLevel(); break;
-        case 'character': this.show('character'); break;
+        case 'character': this.actions.showCharacter(); break;
         case 'settings': this.actions.openSettings(); break;
         case 'close-settings': this.actions.closeSettings(); break;
         case 'resume': this.actions.resume(); break;
@@ -115,13 +124,13 @@ export class UI {
 
   /* ------------------------------------------------ main levels ---- */
 
+  /** Every official level is always playable — no locks, no gating. */
   populateMainLevels(levelMetas, save) {
     this.$levelCards.innerHTML = '';
     levelMetas.forEach((meta, i) => {
       const rec = save.level(meta.id);
-      const unlocked = save.isUnlocked(i);
       const card = document.createElement('article');
-      card.className = 'level-card' + (unlocked ? '' : ' locked');
+      card.className = 'level-card';
       const stars = '★'.repeat(meta.stars || 1);
       const song = meta.song ? meta.song.name : '';
       card.innerHTML = `
@@ -135,12 +144,11 @@ export class UI {
         <div class="lc-coins">
           ${[0, 1, 2].map((ci) => `<span class="lc-coin${rec.coins[ci] ? ' got' : ''}"></span>`).join('')}
         </div>
-        <button class="btn lc-play">PLAY</button>
-        <div class="lc-lock">🔒<small>Complete ${i > 0 ? levelMetas[i - 1].name : ''} to unlock</small></div>`;
+        <button class="btn lc-play">PLAY</button>`;
       const [r, g, b] = meta.theme.accent.map((v) => Math.round(v * 255));
       card.style.setProperty('--accent', `rgb(${r},${g},${b})`);
       card.style.setProperty('--accent-glow', `rgba(${r},${g},${b},0.35)`);
-      if (unlocked) card.addEventListener('click', () => this.actions.levelSelected(i));
+      card.addEventListener('click', () => this.actions.levelSelected(i));
       this.$levelCards.append(card);
     });
   }
@@ -299,7 +307,7 @@ export class UI {
     if (top) top.disabled = !hasExtras;
   }
 
-  _ugcCard(row, hasExtras) {
+  _ugcCard(row, hasExtras, playFn = null) {
     const card = document.createElement('article');
     card.className = 'ugc-card';
     const owner = row.owner || {};
@@ -323,11 +331,12 @@ export class UI {
       </div>
       <button class="btn btn-primary ugc-play">PLAY</button>`;
     const play = card.querySelector('.ugc-play');
+    const doPlay = playFn || ((id) => this.ugc.ctx.play(id));
     const go = async () => {
       if (card.classList.contains('busy')) return;
       card.classList.add('busy');
       play.textContent = 'LOADING…';
-      const err = await this.ugc.ctx.play(row.id);
+      const err = await doPlay(row.id);
       card.classList.remove('busy');
       play.textContent = 'PLAY';
       if (err) this.$ugcStatus.textContent = `⚠ ${err}`;
@@ -349,6 +358,116 @@ export class UI {
       note.append(b);
     }
     return note;
+  }
+
+  /* ------------------------------------------------ search levels ---- */
+
+  _bindSearch() {
+    document.getElementById('search-filters').addEventListener('submit', (e) => {
+      e.preventDefault();
+      this._searchLoad(true);
+    });
+    this.$searchMore.addEventListener('click', () => this._searchLoad(false));
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver((entries) => {
+        const s = this.searchCtx;
+        if (entries.some((en) => en.isIntersecting) && s && s.hasMore && !s.busy) {
+          this._searchLoad(false);
+        }
+      }, { root: this.$searchScroll, rootMargin: '200px' }).observe(this.$searchMore);
+    }
+  }
+
+  /** Open the search page. ctx = { configured, fetch(opts), play(id) }. */
+  showSearch(ctx) {
+    this.searchCtx = { ctx, page: 0, hasMore: false, busy: false, gen: 0 };
+    this.show('search');
+    if (!this.$searchGrid.childElementCount) this._searchLoad(true);
+  }
+
+  async _searchLoad(reset) {
+    const s = this.searchCtx;
+    if (!s || s.busy) return;
+    const grid = this.$searchGrid;
+
+    if (!s.ctx.configured) {
+      grid.innerHTML = '';
+      grid.append(this._ugcNote('Online features are not configured yet — see <b>SETUP.md</b>.'));
+      this.$searchMore.hidden = true;
+      return;
+    }
+
+    const filters = {
+      search: document.getElementById('sf-name').value,
+      creator: document.getElementById('sf-creator').value,
+      difficulty: document.getElementById('sf-difficulty').value,
+    };
+    const gen = ++s.gen;
+    s.busy = true;
+    if (reset) {
+      s.page = 0;
+      grid.innerHTML = '';
+      for (let i = 0; i < 3; i++) grid.append(Object.assign(document.createElement('div'), { className: 'ugc-skel' }));
+    }
+    this.$searchMore.disabled = true;
+    this.$searchStatus.textContent = 'SEARCHING…';
+
+    const res = await s.ctx.fetch({ page: s.page, pageSize: 24, sort: 'newest', ...filters });
+    if (this.searchCtx !== s || gen !== s.gen) return;
+    s.busy = false;
+    this.$searchMore.disabled = false;
+    if (reset) grid.innerHTML = '';
+
+    if (res.error) {
+      this.$searchStatus.textContent = 'SEARCH FAILED';
+      if (reset) grid.append(this._ugcNote(`⚠ ${this._esc(res.error)}`));
+      return;
+    }
+    const { rows, total, hasExtras } = res.data;
+    if (s.page === 0 && !rows.length) {
+      grid.append(this._ugcNote('No levels match those filters.'));
+    }
+    for (const row of rows) grid.append(this._ugcCard(row, hasExtras, s.ctx.play));
+    const shown = grid.querySelectorAll('.ugc-card').length;
+    s.page++;
+    s.hasMore = shown < total;
+    this.$searchMore.hidden = !s.hasMore;
+    this.$searchStatus.textContent = total ? `${shown} OF ${total} RESULT${total === 1 ? '' : 'S'}` : '';
+  }
+
+  /* ------------------------------------------------ recently played ---- */
+
+  /** ctx = { entries: [{type,id,name,creator,at}], play(entry) }. */
+  showRecent(ctx) {
+    this.show('recent');
+    const list = this.$recentList;
+    list.innerHTML = '';
+    if (!ctx.entries.length) {
+      list.append(this._ugcNote('Nothing here yet — levels you play appear in this list.'));
+      return;
+    }
+    for (const e of ctx.entries) {
+      const row = document.createElement('article');
+      row.className = 'recent-row';
+      const when = new Date(e.at || 0).toLocaleString();
+      row.innerHTML = `
+        <span class="recent-kind ${e.type === 'main' ? 'kind-main' : 'kind-community'}">${e.type === 'main' ? 'MAIN' : 'COMMUNITY'}</span>
+        <div class="recent-info">
+          <h3>${this._esc(e.name || 'UNKNOWN')}</h3>
+          <p>by ${this._esc(e.creator || 'unknown')} · last played ${when}</p>
+        </div>
+        <button class="btn btn-primary recent-play">PLAY</button>`;
+      const btn = row.querySelector('.recent-play');
+      btn.onclick = async () => {
+        btn.disabled = true;
+        btn.textContent = 'LOADING…';
+        const err = await ctx.play(e);
+        btn.disabled = false;
+        btn.textContent = 'PLAY';
+        if (err) row.querySelector('p').textContent = `⚠ ${err}`;
+      };
+      list.append(row);
+    }
   }
 
   /* ------------------------------------------------ leaderboards ---- */

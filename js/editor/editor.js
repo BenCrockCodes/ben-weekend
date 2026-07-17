@@ -373,7 +373,8 @@ export class Editor {
     if (!this.selection.size) return;
     if (!this._liveRecorded) { this._record(); this._liveRecorded = true; }
     for (const r of this.selection) {
-      if (key in r || ['w', 'h', 'r', 'n', 'rot', 'color', 'opacity', 'layer', 'flip', 'value'].includes(key)) {
+      if (key in r || ['w', 'h', 'r', 'n', 'rot', 'color', 'opacity', 'layer', 'flip', 'value',
+                       'group', 'target', 'dx', 'dy', 'dur', 'ease'].includes(key)) {
         const old = r[key];
         r[key] = value;
         if (key === 'flip' && r.t === 'spike' && old !== value) {
@@ -606,6 +607,17 @@ export class Editor {
   }
 
   setTool(tool) { this.tool = tool; this.ui.syncTool(); }
+
+  /** Zoom about the viewport center (toolbar buttons; wheel zooms at cursor). */
+  zoomBy(factor) {
+    const midX = this.cam.x + (this.renderer.viewW || 0) / 2;
+    const midY = this.cam.y + CONFIG.VIEW_H / this.cam.zoom / 2;
+    this.cam.zoom = clamp(this.cam.zoom * factor, ZOOM_MIN, ZOOM_MAX);
+    this.cam.x = midX - this.renderer.viewW / 2;
+    this.cam.y = midY - CONFIG.VIEW_H / this.cam.zoom / 2;
+  }
+
+  zoomReset() { this.cam.zoom = 1; }
 
   setCurrentItem(id) {
     this.currentItem = id;

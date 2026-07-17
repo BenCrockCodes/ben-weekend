@@ -80,13 +80,22 @@ export function drawRing(r, o, theme, time, pulse) {
   r.circle(o.cx, o.cy, R * 0.2, YELLOW, o.used ? 0.3 : 0.9, 10);
 }
 
+/* Per-gamemode portal identity colors (mirrored in the editor thumbnails). */
+const MODE_COLORS = {
+  cube: [0.5, 1, 0.35],
+  ship: [1, 0.35, 0.8],
+  ufo: [1, 0.6, 0.15],
+  wave: [0.25, 0.75, 1],
+  robot: [0.95, 0.95, 0.4],
+};
+
 export function drawPortal(r, o, theme, time, pulse) {
   // color communicates function: gravity = cyan/orange, speed = green/pink,
-  // mode = magenta (ship) / lime (cube), size = violet
+  // size = violet, gamemodes = one identity color each
   let col;
   if (o.kind === 'gravity') col = o.value === -1 ? ORANGE : [0.2, 0.85, 1];
   else if (o.kind === 'speed') col = o.value >= 1 ? GREEN : PINK;
-  else if (o.kind === 'mode') col = o.value === 'ship' ? [1, 0.35, 0.8] : [0.5, 1, 0.35];
+  else if (o.kind === 'mode') col = MODE_COLORS[o.value] || MODE_COLORS.cube;
   else col = [0.65, 0.4, 1];
   const cx = o.x + 0.5, cy = o.y + HB.PORTAL_H / 2;
   const sway = 0.06 * Math.sin(time * 3 + o.x);
@@ -104,15 +113,45 @@ export function drawPortal(r, o, theme, time, pulse) {
       r.tri(bx, cy - 0.35, bx, cy + 0.35, bx + 0.3 * ch, cy, WHITE, 0.85);
     }
   }
-  // mode portals carry the gamemode glyph: wings for ship, a square for cube
+  // mode portals carry their gamemode's glyph
   if (o.kind === 'mode') {
-    if (o.value === 'ship') {
-      r.tri(cx - 0.35, cy - 0.15, cx + 0.35, cy - 0.15, cx + 0.45, cy + 0.1, WHITE, 0.9);
-      r.quad(cx - 0.12, cy - 0.05, 0.24, 0.28, WHITE, 0.9);
-    } else {
-      r.quad(cx - 0.2, cy - 0.2, 0.4, 0.4, WHITE, 0.9);
-      r.quad(cx - 0.1, cy - 0.1, 0.2, 0.2, col, 1);
+    switch (o.value) {
+      case 'ship':
+        r.tri(cx - 0.35, cy - 0.15, cx + 0.35, cy - 0.15, cx + 0.45, cy + 0.1, WHITE, 0.9);
+        r.quad(cx - 0.12, cy - 0.05, 0.24, 0.28, WHITE, 0.9);
+        break;
+      case 'ufo':   // saucer: slab + dome
+        r.quad(cx - 0.35, cy - 0.1, 0.7, 0.16, WHITE, 0.9);
+        r.circle(cx, cy + 0.08, 0.16, WHITE, 0.9, 12);
+        break;
+      case 'wave':  // dart arrow
+        r.tri(cx - 0.3, cy + 0.22, cx - 0.3, cy - 0.22, cx + 0.38, cy, WHITE, 0.9);
+        break;
+      case 'robot': // head + legs
+        r.quad(cx - 0.16, cy + 0.02, 0.32, 0.3, WHITE, 0.9);
+        r.quad(cx - 0.16, cy - 0.3, 0.1, 0.26, WHITE, 0.9);
+        r.quad(cx + 0.06, cy - 0.3, 0.1, 0.26, WHITE, 0.9);
+        break;
+      default:      // cube
+        r.quad(cx - 0.2, cy - 0.2, 0.4, 0.4, WHITE, 0.9);
+        r.quad(cx - 0.1, cy - 0.1, 0.2, 0.2, col, 1);
     }
+  }
+}
+
+/** Trigger marker — drawn only inside the editor (gameplay never renders
+ *  triggers; the runtime consumes them). A small flag on a pole, colored
+ *  by kind, with the target group number implied by the properties panel. */
+export function drawTrigger(r, o, theme, time, pulse) {
+  const col = o.kind === 'alpha' ? [0.65, 0.4, 1] : [0.2, 1, 0.6];
+  const x = o.x + 0.5, y = o.y;
+  r.glow(x, y + 0.5, 0.9, col, 0.3);
+  r.quad(x - 0.04, y, 0.08, 0.9, WHITE, 0.85);                 // pole
+  r.tri(x + 0.04, y + 0.9, x + 0.04, y + 0.45, x + 0.55, y + 0.68, col, 0.95);  // flag
+  if (o.kind === 'alpha') {
+    r.quad(x - 0.28, y + 0.1, 0.2, 0.2, col, 0.5);             // fading swatch
+  } else {
+    r.tri(x - 0.34, y + 0.14, x - 0.34, y + 0.3, x - 0.12, y + 0.22, col, 0.9); // move arrow
   }
 }
 
@@ -162,4 +201,5 @@ export const DRAW = {
   portal: drawPortal,
   coin: drawCoin,
   deco: drawDeco,
+  trigger: drawTrigger,   // editor-only marker
 };

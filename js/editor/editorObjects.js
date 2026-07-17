@@ -9,6 +9,7 @@
  * Adding a new placeable object = adding one PALETTE entry (and, if it is a
  * brand-new gameplay type, its runtime support in levelManager/gameObjects).
  */
+import { EASE_OPTIONS } from '../levelManager.js';
 
 /* ================================================= categories ==== */
 
@@ -80,6 +81,10 @@ const thumbDecoCircle = S(`<circle cx="24" cy="24" r="14" fill="${CY}" opacity="
 const thumbGlow = S(
   `<circle cx="24" cy="24" r="16" fill="${CY}" opacity="0.2"/><circle cx="24" cy="24" r="9" fill="${CY}" opacity="0.4"/><circle cx="24" cy="24" r="4" fill="#fff"/>`);
 const thumbBeam = S(`<rect x="21" y="6" width="6" height="36" fill="${MG}" opacity="0.8"/>`);
+const thumbTrigger = (col, glyph) => S(
+  `<rect x="21" y="8" width="3" height="32" fill="#fff" opacity="0.85"/>` +
+  `<polygon points="24,8 40,14 24,20" fill="${col}"/>` +
+  `<text x="16" y="38" font-size="13" text-anchor="middle" fill="${col}" font-family="monospace" font-weight="bold">${glyph}</text>`);
 const thumbTower = S(`<rect x="14" y="12" width="20" height="30" fill="${CY}" opacity="0.18" stroke="${CY}" stroke-opacity="0.4"/>`);
 
 /* ================================================= palette ==== */
@@ -138,10 +143,21 @@ export const PALETTE = [
     make: (x, y) => ({ t: 'portal', kind: 'size', value: 'mini', x, y }) },
   { id: 'sizeNorm', cat: 'size', name: 'Size: Normal', thumb: thumbPortal(VI, '●'),
     make: (x, y) => ({ t: 'portal', kind: 'size', value: 'normal', x, y }) },
-  { id: 'modeShip', cat: 'mode', name: 'Ship Portal', thumb: thumbPortal('#ff59cc', '▲'),
-    make: (x, y) => ({ t: 'portal', kind: 'mode', value: 'ship', x, y }) },
   { id: 'modeCube', cat: 'mode', name: 'Cube Portal', thumb: thumbPortal('#7fff59', '■'),
     make: (x, y) => ({ t: 'portal', kind: 'mode', value: 'cube', x, y }) },
+  { id: 'modeShip', cat: 'mode', name: 'Ship Portal', thumb: thumbPortal('#ff59cc', '▲'),
+    make: (x, y) => ({ t: 'portal', kind: 'mode', value: 'ship', x, y }) },
+  { id: 'modeUfo', cat: 'mode', name: 'UFO Portal', thumb: thumbPortal('#ff9926', '◍'),
+    make: (x, y) => ({ t: 'portal', kind: 'mode', value: 'ufo', x, y }) },
+  { id: 'modeWave', cat: 'mode', name: 'Wave Portal', thumb: thumbPortal('#40bfff', '◅'),
+    make: (x, y) => ({ t: 'portal', kind: 'mode', value: 'wave', x, y }) },
+  { id: 'modeRobot', cat: 'mode', name: 'Robot Portal', thumb: thumbPortal('#f2f266', '⊓'),
+    make: (x, y) => ({ t: 'portal', kind: 'mode', value: 'robot', x, y }) },
+  // -------- triggers (fire when the player passes their x position)
+  { id: 'trigMove', cat: 'triggers', name: 'Move Trigger', thumb: thumbTrigger('#33ff99', '⇄'),
+    make: (x, y) => ({ t: 'trigger', kind: 'move', x, y, target: 1, dx: 0, dy: 2, dur: 1, ease: 'inout' }) },
+  { id: 'trigAlpha', cat: 'triggers', name: 'Alpha Trigger', thumb: thumbTrigger('#a86bff', '◐'),
+    make: (x, y) => ({ t: 'trigger', kind: 'alpha', x, y, target: 1, opacity: 0, dur: 0.5 }) },
   // -------- decorations
   { id: 'decoRect', cat: 'deco', name: 'Neon Panel', thumb: thumbDecoRect(CY, 0.4),
     make: (x, y) => ({ t: 'deco', shape: 'rect', x, y, w: 2, h: 2, color: [0, 0.94, 1], opacity: 0.35, rot: 0, layer: 'bg' }) },
@@ -186,6 +202,7 @@ export function recBounds(rec) {
     case 'ring': return { x: rec.x, y: rec.y, w: 1, h: 1 };
     case 'portal': return { x: rec.x, y: rec.y, w: 1, h: 3 };
     case 'coin': return { x: rec.x, y: rec.y, w: 1, h: 1 };
+    case 'trigger': return { x: rec.x, y: rec.y, w: 1, h: 1 };
     case 'deco':
       if (rec.shape === 'circle' || rec.shape === 'glow') {
         return { x: rec.x - rec.r, y: rec.y - rec.r, w: rec.r * 2, h: rec.r * 2 };
@@ -211,6 +228,7 @@ export function recToDrawItems(rec) {
     case 'ring': return [{ type: 'ring', cx: rec.x + 0.5, cy: rec.y + 0.5, used: false }];
     case 'portal': return [{ type: 'portal', kind: rec.kind, value: rec.value, x: rec.x, y: rec.y }];
     case 'coin': return [{ type: 'coin', cx: rec.x + 0.5, cy: rec.y + 0.5, collected: false }];
+    case 'trigger': return [{ type: 'trigger', kind: rec.kind, x: rec.x, y: rec.y }];
     case 'deco': return [{ type: 'deco', ...rec }];
     default: return [];
   }
@@ -233,33 +251,46 @@ const F = {
   opacity: { key: 'opacity', label: 'Opacity', type: 'range', min: 0.05, max: 1, step: 0.05 },
   layer: { key: 'layer', label: 'Layer', type: 'select',
            options: [{ v: 'bg', label: 'Behind player' }, { v: 'fg', label: 'In front' }] },
+  group: { key: 'group', label: 'Group', type: 'number', step: 1, min: 0, max: 99 },
+  // trigger fields
+  target: { key: 'target', label: 'Target group', type: 'number', step: 1, min: 1, max: 99 },
+  dx: { key: 'dx', label: 'Move X', type: 'number', step: 0.5, min: -48, max: 48 },
+  dy: { key: 'dy', label: 'Move Y', type: 'number', step: 0.5, min: -30, max: 30 },
+  dur: { key: 'dur', label: 'Duration (s)', type: 'number', step: 0.1, min: 0, max: 10 },
+  ease: { key: 'ease', label: 'Easing', type: 'select', options: EASE_OPTIONS },
+  fade: { key: 'opacity', label: 'Opacity →', type: 'range', min: 0, max: 1, step: 0.05 },
 };
 
 export function propsFor(rec) {
   const base = [F.x, F.y];
   switch (rec.t) {
-    case 'block': return [...base, F.w, F.h];
-    case 'platform': return [...base, F.w];
-    case 'spike': return [...base, F.n, F.flip];
-    case 'saw': return [...base, F.r];
+    case 'block': return [...base, F.w, F.h, F.group];
+    case 'platform': return [...base, F.w, F.group];
+    case 'spike': return [...base, F.n, F.flip, F.group];
+    case 'saw': return [...base, F.r, F.group];
     case 'portal': {
       const opts = rec.kind === 'gravity'
         ? [{ v: 1, label: 'To floor' }, { v: -1, label: 'To ceiling' }]
         : rec.kind === 'speed'
           ? [{ v: 'slow', label: 'Slow' }, { v: 'normal', label: 'Normal' }, { v: 'fast', label: 'Fast' }]
           : rec.kind === 'mode'
-            ? [{ v: 'cube', label: 'Cube' }, { v: 'ship', label: 'Ship' }]
+            ? [{ v: 'cube', label: 'Cube' }, { v: 'ship', label: 'Ship' }, { v: 'ufo', label: 'UFO' },
+               { v: 'wave', label: 'Wave' }, { v: 'robot', label: 'Robot' }]
             : [{ v: 'mini', label: 'Mini' }, { v: 'normal', label: 'Normal' }];
-      return [...base, { key: 'value', label: 'Mode', type: 'select', options: opts }];
+      return [...base, { key: 'value', label: 'Mode', type: 'select', options: opts }, F.group];
     }
+    case 'trigger':
+      return rec.kind === 'alpha'
+        ? [...base, F.target, F.fade, F.dur]
+        : [...base, F.target, F.dx, F.dy, F.dur, F.ease];
     case 'deco': {
       const shape = [...base];
       if (rec.shape === 'circle' || rec.shape === 'glow') shape.push(F.r);
       else { shape.push(F.w, F.h); if (rec.shape !== 'tri') shape.push(F.rot); }
-      shape.push(F.color, F.opacity, F.layer);
+      shape.push(F.color, F.opacity, F.layer, F.group);
       return shape;
     }
-    default: return base;    // pad / ring / coin: position only
+    default: return [...base, F.group];    // pad / ring / coin
   }
 }
 
@@ -275,8 +306,12 @@ export function paletteIdFor(rec) {
     case 'portal':
       if (rec.kind === 'gravity') return rec.value === -1 ? 'gravUp' : 'gravDown';
       if (rec.kind === 'speed') return { slow: 'spdSlow', normal: 'spdNorm', fast: 'spdFast' }[rec.value] || 'spdNorm';
-      if (rec.kind === 'mode') return rec.value === 'ship' ? 'modeShip' : 'modeCube';
+      if (rec.kind === 'mode') {
+        return { cube: 'modeCube', ship: 'modeShip', ufo: 'modeUfo',
+                 wave: 'modeWave', robot: 'modeRobot' }[rec.value] || 'modeCube';
+      }
       return rec.value === 'mini' ? 'sizeMini' : 'sizeNorm';
+    case 'trigger': return rec.kind === 'alpha' ? 'trigAlpha' : 'trigMove';
     case 'coin': return 'coin';
     case 'deco':
       if (rec.shape === 'glow') return 'fxGlow';

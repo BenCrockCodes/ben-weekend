@@ -9,7 +9,7 @@
  * is identical on a 60 Hz laptop and a 240 Hz monitor.
  */
 import { CONFIG } from './config.js';
-import { clamp } from './utils.js';
+import { clamp, hexToRgb } from './utils.js';
 import { Renderer } from './renderer.js';
 import { Camera } from './camera.js';
 import { Input } from './input.js';
@@ -26,6 +26,7 @@ import { Editor, preparePlayDef } from './editor/editor.js';
 import { LevelStore } from './editor/storage.js';
 import { Backend } from './backend/backend.js';
 import { AccountUI } from './accountUI.js';
+import { CharacterUI } from './characterUI.js';
 
 /** Fallback theme rendered behind the menus. */
 const MENU_THEME = {
@@ -44,6 +45,7 @@ export class Game {
     this.levels = new LevelManager();
     this.save = new SaveManager();
     this.audio = new AudioManager(this.save.settings);
+    this.applyCustomisation();   // colours + icon variants from the save
 
     this.state = 'menu';
     this.level = null;            // current LevelRuntime
@@ -89,6 +91,9 @@ export class Game {
       levelSelected: (i) => this.startLevel(i),
       showMainLevels: () => this.showMainLevels(),
       showUGC: () => this.showUGC(),
+      showSearch: () => this.showSearch(),
+      showRecent: () => this.showRecent(),
+      showCharacter: () => this.characterUI.open(),
       showMyLevels: () => this.showMyLevels(),
       showLeaderboards: () => this.showLeaderboards(),
       newCustomLevel: () => this.newCustomLevel(),
@@ -107,6 +112,9 @@ export class Game {
 
     // the level editor shares the renderer / audio / level systems
     this.editor = new Editor(this);
+
+    // character customisation screen
+    this.characterUI = new CharacterUI(this);
 
     // online accounts (Supabase) — fully optional, see SETUP.md
     this.user = null;
@@ -149,17 +157,33 @@ export class Game {
     const { data: cloud } = await Backend.getStats(user.id);
     const merged = Backend.mergeSaves(this.save.data, cloud ? cloud.data : null);
     this.save.data.levels = merged.levels;
+    this.save.data.recent = merged.recent || this.save.data.recent;
     this.save.save();
-    Backend.pushStats(user.id, { levels: this.save.data.levels });
+    this._queueStatsSync(0);
   }
 
-  /** Debounced cloud push — called after progress changes. */
-  _queueStatsSync() {
+  /** Debounced cloud push — called after progress / history changes. */
+  _queueStatsSync(delay = 4000) {
     if (!this.user) return;
     clearTimeout(this._statsSyncTimer);
     this._statsSyncTimer = setTimeout(() => {
-      Backend.pushStats(this.user.id, { levels: this.save.data.levels });
-    }, 4000);
+      Backend.pushStats(this.user.id, {
+        levels: this.save.data.levels,
+        recent: this.save.data.recent,
+      });
+    }, delay);
+  }
+
+  /* ---- character customisation ---- */
+
+  /** Convert saved customisation (hex colours) into player style and apply. */
+  applyCustomisation() {
+    const c = this.save.custom;
+    this.player.setStyle({
+      primary: hexToRgb(c.primary) || [0, 0.94, 1],
+      secondary: hexToRgb(c.secondary) || [1, 0.18, 0.65],
+      icons: c.icons,
+    });
   }
 
   /* ---- play-hub navigation ---- */
@@ -173,12 +197,38 @@ export class Game {
     this.ui.showUGC({
       configured: Backend.isConfigured(),
       fetch: (opts) => Backend.listPublishedLevels(opts),
-      play: (id) => this.playCommunity(id),
+      play: (id) => this.playCommunity(id, 'ugc'),
     });
   }
 
+  showSearch() {
+    this.ui.showSearch({
+      configured: Backend.isConfigured(),
+      fetch: (opts) => Backend.listPublishedLevels(opts),
+      play: (id) => this.playCommunity(id, 'search'),
+    });
+  }
+
+  showRecent() {
+    this.ui.showRecent({
+      entries: this.save.recent,
+      play: (entry) => this.playRecent(entry),
+    });
+  }
+
+  /** Reopen a recently played level. Returns an error string or null. */
+  async playRecent(entry) {
+    if (entry.type === 'main') {
+      const index = CONFIG.LEVEL_LIST.indexOf(entry.id);
+      if (index < 0) return 'That level no longer exists.';
+      this.startLevel(index);
+      return null;
+    }
+    return this.playCommunity(entry.id, 'recent');
+  }
+
   /** Download and run a community level. Returns an error string or null. */
-  async playCommunity(id) {
+  async playCommunity(id, returnTo = 'ugc') {
     const { data, error } = await Backend.downloadLevel(id);
     const def = data && data.data;
     if (error || !def || !Array.isArray(def.objects)) {
@@ -186,11 +236,14 @@ export class Game {
     }
     Backend.recordLevelDownload(id);   // fire-and-forget play counter
     if (data.owner && data.owner.username) def.creator = data.owner.username;
+    this.save.recordRecent({ type: 'community', id, name: data.name || def.name,
+                             creator: def.creator || 'unknown' });
+    this._queueStatsSync();
     this.editor.deactivate();
     this.level = this.levels.buildFromDef(preparePlayDef(def));
     this.levelIndex = -1;
     this.isCustom = true;
-    this.testReturnTo = 'ugc';
+    this.testReturnTo = returnTo;
     this.testStartX = null;
     this.sessionAttempts = 0;
     this.state = 'playing';
@@ -241,6 +294,9 @@ export class Game {
   startLevel(index) {
     this.levelIndex = index;
     this.level = this.levels.build(index);
+    const meta = this.levels.meta(index);
+    this.save.recordRecent({ type: 'main', id: meta.id, name: meta.name, creator: 'NEOVOLT' });
+    this._queueStatsSync();
     this.isCustom = false;
     this.testReturnTo = null;
     this.testStartX = null;
@@ -378,6 +434,8 @@ export class Game {
     this.state = 'menu';
     if (dest === 'mylevels') { this.showMyLevels(); return; }
     if (dest === 'ugc') { this.showUGC(); return; }
+    if (dest === 'search') { this.showSearch(); return; }
+    if (dest === 'recent') { this.showRecent(); return; }
     this.showMainLevels();
   }
 
@@ -429,13 +487,16 @@ export class Game {
       this.accumulator -= CONFIG.PHYS.STEP;
     }
 
+    // move/alpha triggers tween per rendered frame (smooth at any fps)
+    this.level.updateTriggers(this.player.x, dt);
+
     this.camera.update(this.player, dt, this.save.settings.shake, this._camMax());
     this.particles.update(dt);
 
-    // cube trail
+    // player trail (the wave leaves a denser ribbon)
     this.trailTimer -= dt;
     if (this.trailTimer <= 0 && !this.player.dead) {
-      this.trailTimer = 0.022;
+      this.trailTimer = this.player.mode === 'wave' ? 0.012 : 0.022;
       this.particles.trail(this.player.x + 0.1, this.player.centerY, this.player.color);
     }
 
@@ -512,15 +573,24 @@ export class Game {
       // 2. level objects (glow halos under, solids on top)
       const x0 = cam.x - 3, x1 = cam.x + r.viewW + 3;
       const banked = this.isCustom ? [] : this.save.level(this.level.id).coins;
+      const lv = this.level;
+
+      // draw with the object's alpha-trigger group fade applied
+      const drawFaded = (o, fn, ...extra) => {
+        const a = lv.groupAlpha(o);
+        if (a <= 0.004) return;                 // fully faded groups skip work
+        if (a !== 1) r.alphaMul = a;
+        fn(r, o, theme, this.elapsed, pulse, ...extra);
+        r.alphaMul = 1;
+      };
 
       // background decorations (editor levels)
-      this.level.eachDecoBg(x0 - 60, x1, (o) => DRAW.deco(r, o, theme, this.elapsed, pulse));
+      lv.eachDecoBg(x0 - 60, x1, (o) => drawFaded(o, DRAW.deco));
 
-      this.level.eachRenderable(x0, x1, (o) => {
+      lv.eachRenderable(x0, x1, (o) => {
         const fn = DRAW[o.type];
         if (!fn) return;
-        if (o.type === 'coin') fn(r, o, theme, this.elapsed, pulse, banked[o.idx]);
-        else fn(r, o, theme, this.elapsed, pulse);
+        drawFaded(o, fn, o.type === 'coin' ? banked[o.idx] : undefined);
         // ambient shimmer rising out of portals
         if (o.type === 'portal' && Math.random() < dt * 8) {
           this.particles.shimmer(o.x + 0.5, o.y + 0.4, [0.75, 0.6, 1]);
@@ -529,7 +599,7 @@ export class Game {
 
       // 3. the player, then foreground decorations
       this.player.render(r, this.elapsed);
-      this.level.eachDecoFg(x0 - 60, x1, (o) => DRAW.deco(r, o, theme, this.elapsed, pulse));
+      lv.eachDecoFg(x0 - 60, x1, (o) => drawFaded(o, DRAW.deco));
 
       r.flushGlowLayer();     // halos
       r.flushSolidLayer();    // shapes above their halos

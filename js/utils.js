@@ -40,5 +40,18 @@ export function mixColor(a, b, t) {
   return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
 }
 
+/** '#rrggbb' → [r,g,b] in 0..1, or null if not parseable. */
+export function hexToRgb(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+}
+
+/** [r,g,b] in 0..1 → '#rrggbb'. */
+export function rgbToHex(c) {
+  return '#' + c.map((v) => Math.round(clamp(v, 0, 1) * 255).toString(16).padStart(2, '0')).join('');
+}
+
 export const TAU = Math.PI * 2;
 export const DEG = Math.PI / 180;
