@@ -55,6 +55,7 @@ export const CONFIG = {
   /* ---- speed portal multipliers ---- */
   SPEEDS: { slow: 0.81, normal: 1.0, fast: 1.27 },
 
-  LEVEL_LIST: ['level1', 'level2', 'level3', 'level4', 'level5'],   // unlock order
+  LEVEL_LIST: ['level1', 'level2', 'level3', 'level4', 'level5',
+               'level6', 'level7', 'level8'],   // campaign order (all playable)
   SAVE_KEY: 'neovolt.save.v1',
 };

@@ -118,9 +118,9 @@ export const MODES = {
     enterCap: 12,
     hurtShrink: 0.12,
     gravity: 94,
-    jumpV: 12.6,
-    holdLift: 58,         // extra upward acceleration while the press is held…
-    holdMax: 0.24,        // …for at most this long after takeoff
+    jumpV: 10.8,          // tap → ~1.1-block hop
+    holdLift: 78,         // extra upward acceleration while the press is held…
+    holdMax: 0.34,        // …for at most this long → full hold ≈ 2.9 blocks
     maxFall: 34,
     rotate: 'upright',
     integrate(pl, input, dt, ctx) {

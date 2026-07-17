@@ -93,6 +93,7 @@ export class Game {
       showUGC: () => this.showUGC(),
       showSearch: () => this.showSearch(),
       showRecent: () => this.showRecent(),
+      showCommunity: () => this.showCommunity(),
       showCharacter: () => this.characterUI.open(),
       showMyLevels: () => this.showMyLevels(),
       showLeaderboards: () => this.showLeaderboards(),
@@ -140,6 +141,11 @@ export class Game {
   async start() {
     this.levels.loadAll();   // internal module — instant, no network
     this.ui.syncSettings(this.save.settings);
+    this.ui.initCarousel({
+      metas: this.levels.defs,
+      save: this.save,
+      play: (i) => this.startLevel(i),
+    });
     this.ui.show('menu');
     this.lastTime = performance.now();
     requestAnimationFrame((t) => this._loop(t));
@@ -149,10 +155,24 @@ export class Game {
 
   async _onAuth(user) {
     this.user = user;
-    if (!user) { this.accountUI.setSession(null, null); return; }
+    if (!user) {
+      this.accountUI.setSession(null, null);
+      this.ui.setCommunityUser(null);
+      return;
+    }
     const { data: profile, error: profileError } = await Backend.ensureProfile(user);
     if (profileError) console.warn('[auth] profile load/create failed:', profileError);
     this.accountUI.setSession(user, profile);
+    // community actions (voting; rating for the moderator account)
+    this.ui.setCommunityUser({
+      userId: user.id,
+      isMod: !!(profile && profile.is_mod),
+      vote: (levelId, v) => Backend.castDifficultyVote(levelId, user.id, v),
+      getMyVote: async (levelId) => (await Backend.getMyVote(levelId, user.id)).data,
+      rate: (levelId, d, type) => Backend.rateLevel(levelId, d, type),
+    });
+    // share this device's customisation on the public profile
+    Backend.pushProfileStyle(user.id, this.save.custom);
     // cloud save sync: merge both directions, then push the result
     const { data: cloud } = await Backend.getStats(user.id);
     const merged = Backend.mergeSaves(this.save.data, cloud ? cloud.data : null);
@@ -184,6 +204,7 @@ export class Game {
       secondary: hexToRgb(c.secondary) || [1, 0.18, 0.65],
       icons: c.icons,
     });
+    if (this.user) Backend.pushProfileStyle(this.user.id, c);   // keep profile in sync
   }
 
   /* ---- play-hub navigation ---- */
@@ -191,6 +212,14 @@ export class Game {
   showMainLevels() {
     this.ui.populateMainLevels(this.levels.defs, this.save);
     this.ui.show('levels');
+  }
+
+  showCommunity() {
+    this.ui.showCommunity({
+      configured: Backend.isConfigured(),
+      weekly: () => Backend.getWeeklyLevel(),
+      play: (id) => this.playCommunity(id, 'community'),
+    });
   }
 
   showUGC() {
@@ -241,6 +270,7 @@ export class Game {
     this._queueStatsSync();
     this.editor.deactivate();
     this.level = this.levels.buildFromDef(preparePlayDef(def));
+    this.level.onlineId = id;   // DB id — used for Triangles on completion
     this.levelIndex = -1;
     this.isCustom = true;
     this.testReturnTo = returnTo;
@@ -258,8 +288,13 @@ export class Game {
   }
 
   showLeaderboards() {
-    this.ui.populateLeaderboards(this.levels.defs, this.save);
-    this.ui.show('leaderboards');
+    this.ui.showLeaderboards({
+      configured: Backend.isConfigured(),
+      local: { metas: this.levels.defs, save: this.save },
+      fetchTop: (stat, n) => Backend.leaderboard(stat, n),
+      myRank: (stat, value) => Backend.myRank(stat, value),
+      me: () => this.accountUI.profile,
+    });
   }
 
   newCustomLevel() {
@@ -399,6 +434,17 @@ export class Game {
       best,
       attempts: this.sessionAttempts,
     };
+
+    // Triangles: first completion of a community level, awarded server-side
+    if (this.level.onlineId && this.user) {
+      const stats = this._victoryStats;
+      Backend.recordCompletion(this.level.onlineId).then(({ data }) => {
+        if (data > 0) {
+          if (this._victoryStats === stats) stats.triangles = data;
+          if (this.accountUI.profile) this.accountUI.profile.triangles = (this.accountUI.profile.triangles || 0) + data;
+        }
+      });
+    }
   }
 
   pause() {
@@ -436,7 +482,8 @@ export class Game {
     if (dest === 'ugc') { this.showUGC(); return; }
     if (dest === 'search') { this.showSearch(); return; }
     if (dest === 'recent') { this.showRecent(); return; }
-    this.showMainLevels();
+    if (dest === 'community') { this.showCommunity(); return; }
+    this.ui.show('menu');   // main levels launch from the menu carousel now
   }
 
   openSettings() {
@@ -493,11 +540,15 @@ export class Game {
     this.camera.update(this.player, dt, this.save.settings.shake, this._camMax());
     this.particles.update(dt);
 
-    // player trail (the wave leaves a denser ribbon)
-    this.trailTimer -= dt;
-    if (this.trailTimer <= 0 && !this.player.dead) {
-      this.trailTimer = this.player.mode === 'wave' ? 0.012 : 0.022;
-      this.particles.trail(this.player.x + 0.1, this.player.centerY, this.player.color);
+    // player trail: solid ribbon for the wave, particles for everything else
+    if (this.player.mode === 'wave') {
+      this.player.sampleTrail();
+    } else {
+      this.trailTimer -= dt;
+      if (this.trailTimer <= 0 && !this.player.dead) {
+        this.trailTimer = 0.022;
+        this.particles.trail(this.player.x + 0.1, this.player.centerY, this.player.color);
+      }
     }
 
     this.ui.setProgress(this._progressPct());
@@ -597,7 +648,8 @@ export class Game {
         }
       });
 
-      // 3. the player, then foreground decorations
+      // 3. the wave ribbon, the player, then foreground decorations
+      this.player.renderTrail(r);
       this.player.render(r, this.elapsed);
       lv.eachDecoFg(x0 - 60, x1, (o) => drawFaded(o, DRAW.deco));
 

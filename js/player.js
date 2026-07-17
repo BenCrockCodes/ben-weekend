@@ -36,8 +36,49 @@ export class Player {
     this.holdT = 0;                   // robot: remaining hold-boost time
     this.onGround = true;
     this.rotation = 0;                // degrees; meaning depends on the mode
+    this.trail = [];                  // wave: solid ribbon sample points
     this.dead = false;
     this.won = false;
+  }
+
+  /** Sample the wave ribbon (called once per rendered frame by game.js). */
+  sampleTrail() {
+    if (this.mode !== 'wave' || this.dead) return;
+    const last = this.trail[this.trail.length - 1];
+    const cx = this.x, cy = this.centerY;   // anchor at the dart's tail
+    if (!last || Math.abs(cx - last.x) > 0.12 || Math.abs(cy - last.y) > 0.05) {
+      this.trail.push({ x: cx, y: cy });
+      if (this.trail.length > 160) this.trail.shift();
+    }
+  }
+
+  /**
+   * The wave's solid ribbon trail — drawn under the player in the primary
+   * colour, tapering toward the tail. Pure geometry (no particles), so it
+   * looks identical at any frame rate.
+   */
+  renderTrail(r) {
+    const t = this.trail;
+    if (t.length < 2) return;
+    const head = { x: this.x, y: this.centerY };
+    const pts = [...t, head];
+    const n = pts.length;
+    const width = this.size * 0.26;
+    let px = 0, py = 0, first = true;
+    for (let i = 1; i < n; i++) {
+      const a = pts[i - 1], b = pts[i];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const len = Math.hypot(dx, dy) || 1;
+      // taper: thin at the tail, full width at the head
+      const k = i / (n - 1);
+      const w = width * (0.15 + 0.85 * k);
+      const nx = (-dy / len) * w, ny = (dx / len) * w;
+      if (first) { px = nx; py = ny; first = false; }
+      const alpha = 0.28 + 0.5 * k;
+      r.tri(a.x + px, a.y + py, a.x - px, a.y - py, b.x + nx, b.y + ny, this.color, alpha);
+      r.tri(a.x - px, a.y - py, b.x - nx, b.y - ny, b.x + nx, b.y + ny, this.color, alpha);
+      px = nx; py = ny;
+    }
   }
 
   /** Switch gamemode, keeping the lethal-hitbox margin in sync. */
@@ -235,36 +276,45 @@ export class Player {
 
   /* ---------------------------------------------------------- robot ---- */
 
+  /** Forward-facing runner: head and visor lead in the travel direction,
+   *  legs stride behind — silhouette reads "running right" like ship/wave. */
   _renderRobot(r, time) {
     const s = this.size, v = this.variant;
     const cx = this.centerX, cy = this.centerY;
     const rot = this.rotation * DEG;
+    const pt = this._pt(rot);
 
     r.glow(cx, cy, s * 1.7, this.color, 0.5);
 
-    // legs: scissor-walk while grounded, tucked while airborne
-    const phase = this.onGround ? Math.sin(this.x * 6) : 0;
-    const legLen = (0.3 + (v >= 3 ? 0.06 : 0)) * s;
-    const spread = this.onGround ? phase * s * 0.16 : s * 0.05;
-    r.quad(cx - s * 0.26 + spread, this.y, s * 0.14, legLen, WHITE, 1, rot, cx, cy);
-    r.quad(cx + s * 0.12 - spread, this.y, s * 0.14, legLen, WHITE, 1, rot, cx, cy);
+    // striding legs (cadence follows distance travelled; tucked in the air)
+    const phase = this.onGround ? Math.sin(this.x * 4.2) : 0.4;
+    const legLen = (0.34 + (v >= 3 ? 0.06 : 0)) * s;
+    const backX = cx - s * 0.3, frontX = cx - s * 0.02;
+    r.quad(backX + phase * s * 0.12, this.y, s * 0.13, legLen, WHITE, 1, rot, cx, cy);
+    r.quad(frontX - phase * s * 0.12, this.y, s * 0.13, legLen, WHITE, 1, rot, cx, cy);
 
-    // torso (variant: head size / torso plate)
-    const torsoY = this.y + legLen * 0.8;
-    const torsoH = s * 0.46;
-    r.quad(cx - s * 0.32, torsoY, s * 0.64, torsoH, WHITE, 1, rot, cx, cy);
-    r.quad(cx - s * 0.26, torsoY + s * 0.05, s * 0.52, torsoH - s * 0.1, this.color, 1, rot, cx, cy);
+    // torso: leans into the run, nose edge toward travel
+    const torsoY = this.y + legLen * 0.85;
+    const torsoH = s * 0.4;
+    r.quad(cx - s * 0.36, torsoY, s * 0.68, torsoH, WHITE, 1, rot, cx, cy);
+    r.quad(cx - s * 0.3, torsoY + s * 0.05, s * 0.56, torsoH - s * 0.1, this.color, 1, rot, cx, cy);
+    // front arm nub
+    r.quad(cx + s * 0.28, torsoY + torsoH * 0.3, s * 0.14, s * 0.14, this.color2, 1, rot, cx, cy);
 
-    // head with visor
-    const headS = s * (0.34 + (v % 3) * 0.04);
-    const headY = torsoY + torsoH;
-    r.quad(cx - headS / 2, headY, headS, headS, WHITE, 1, rot, cx, cy);
-    r.quad(cx - headS * 0.36, headY + headS * 0.28, headS * 0.72, headS * 0.3, this.color2, 1, rot, cx, cy);
+    // head at the FRONT with a forward visor (variant: head size)
+    const headS = s * (0.32 + (v % 3) * 0.04);
+    const headX = cx + s * 0.06, headY = torsoY + torsoH;
+    r.quad(headX - headS * 0.2, headY, headS, headS, WHITE, 1, rot, cx, cy);
+    r.quad(headX + headS * 0.28, headY + headS * 0.3, headS * 0.5, headS * 0.32, this.color2, 1, rot, cx, cy);
+    // antenna
+    const [a1x, a1y] = pt(headX, headY + headS);
+    r.glow(a1x, a1y + s * 0.08, s * 0.14, this.color, 0.6);
 
-    // hold-boost exhaust
+    // hold-boost exhaust under the heels
     if (this.thrust) {
       const flick = 0.6 + 0.4 * Math.sin(time * 36);
-      r.glow(cx, this.y - s * 0.05, s * 0.5 * flick, [1, 0.75, 0.2], 0.8);
+      const [fx, fy] = pt(cx - s * 0.2, this.y - s * 0.02);
+      r.glow(fx, fy, s * 0.5 * flick, [1, 0.75, 0.2], 0.8);
     }
   }
 }

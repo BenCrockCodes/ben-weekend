@@ -8,6 +8,8 @@
  */
 import { Backend } from './backend/backend.js';
 import { CONFIG } from './config.js';
+import { MODE_IDS, MODES } from './gamemodes.js';
+import { iconSVG } from './characterUI.js';
 
 const el = (tag, cls = '', html = '') => {
   const n = document.createElement(tag);
@@ -16,7 +18,6 @@ const el = (tag, cls = '', html = '') => {
   return n;
 };
 const esc = (s) => { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; };
-const ICONS = 6;   // matches the character-select cube skins c0..c5
 
 export class AccountUI {
   constructor(game) {
@@ -182,31 +183,37 @@ export class AccountUI {
   async _renderProfile(b, profile, isOwn) {
     const panel = el('div', 'acc-panel acc-profile');
     const since = new Date(profile.created_at).toLocaleDateString();
+    const mod = profile.is_mod ? ' <span class="acc-mod" title="Moderator">MOD</span>' : '';
     panel.innerHTML = `
       <div class="acc-head">
         <div class="char-cube c${profile.icon} acc-cube"></div>
         <div>
-          <h3>${esc(profile.username)}</h3>
+          <h3>${esc(profile.username)}${mod}</h3>
           <p class="acc-hint">Player since ${since}${isOwn ? ' · this is you' : ''}</p>
         </div>
       </div>`;
 
-    if (isOwn) {
-      // icon picker
-      const pick = el('div', 'acc-icons');
-      for (let i = 0; i < ICONS; i++) {
-        const c = el('button', `acc-icon ${i === profile.icon ? 'on' : ''}`);
-        c.append(el('div', `char-cube c${i}`));
-        c.onclick = async () => {
-          const { error } = await Backend.updateProfile(profile.id, { icon: i });
-          if (error) return this._flash(panel, error);
-          this.profile.icon = i;
-          this.open();
-        };
-        pick.append(c);
-      }
-      panel.append(el('p', 'acc-label', 'PROFILE ICON'), pick);
+    // the player's complete icon set — view only (customisation lives in
+    // the CHARACTER menu). New gamemodes appear here automatically.
+    const style = profile.style || {};
+    const icons = style.icons || {};
+    const primary = style.primary || '#46e6f5';
+    const secondary = style.secondary || '#f0509e';
+    const setRow = el('div', 'acc-iconset');
+    for (const mode of MODE_IDS) {
+      const cell = el('div', 'acc-iconset-cell');
+      cell.innerHTML = iconSVG(mode, icons[mode] || 0, primary, secondary) +
+                       `<span>${MODES[mode].name.toUpperCase()}</span>`;
+      setRow.append(cell);
     }
+    panel.append(el('p', 'acc-label', 'ICON SET'), setRow);
+
+    // global progression (server-authoritative)
+    const globalBox = el('div', 'acc-stats');
+    globalBox.innerHTML = `
+      <div class="acc-stat"><b>▲ ${(profile.triangles || 0).toLocaleString()}</b><span>TRIANGLES</span></div>
+      <div class="acc-stat"><b>★ ${(profile.creator_points || 0).toLocaleString()}</b><span>CREATOR PTS</span></div>`;
+    panel.append(el('p', 'acc-label', 'PROGRESSION'), globalBox);
 
     // stats block (own stats come from the local save; others' from the cloud)
     const statsBox = el('div', 'acc-stats', '<p class="acc-hint">Loading stats…</p>');

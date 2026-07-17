@@ -30,12 +30,23 @@ let clientPromise = null;
  * (likes/song simply don't render). A creator filter needs an INNER join
  * on the owner profile so the filter applies to the level rows. */
 const levelCols = (extras, innerOwner) =>
-  `id, name, description, difficulty, ${extras ? 'song, downloads, likes' : 'downloads'}, created_at, ` +
+  `id, name, description, difficulty, ` +
+  `${extras ? 'song, downloads, likes, community_difficulty, official_difficulty, rating' : 'downloads'}, created_at, ` +
   `owner:profiles!levels_owner_id_fkey${innerOwner ? '!inner' : ''}(username, icon)`;
 let hasCommunityColumns = null;   // null = unknown → probe on first query
 
-const DIFFICULTIES = ['Easy', 'Normal', 'Hard', 'Insane', 'Custom'];
+const DIFFICULTIES = ['Easy', 'Normal', 'Hard', 'Insane', 'Custom'];   // legacy text labels
 const MAX_LEVEL_BYTES = 262144;   // matches the DB check constraint (256 KB)
+
+/** The community difficulty scale (votes + official ratings), 1–10. */
+export const DIFFICULTY_SCALE = [
+  { v: 1, label: 'Easy' }, { v: 2, label: 'Normal' }, { v: 3, label: 'Medium' },
+  { v: 4, label: 'Hard' }, { v: 5, label: 'Harder' }, { v: 6, label: 'Insane' },
+  { v: 7, label: 'Brutal' }, { v: 8, label: 'Easy Demon' }, { v: 9, label: 'Hard Demon' },
+  { v: 10, label: 'Extreme Demon' },
+];
+export const difficultyLabel = (v) =>
+  (DIFFICULTY_SCALE.find((d) => d.v === v) || {}).label || null;
 
 const isMissingColumnError = (error, col) =>
   typeof error === 'string' && error.includes(col) && /column|schema|exist/i.test(error);
@@ -298,7 +309,6 @@ export const Backend = {
   async publishLevel(ownerId, def, meta) {
     const name = (meta.name || '').trim().toUpperCase().slice(0, 24);
     const description = (meta.description || '').trim().slice(0, 200);
-    const difficulty = DIFFICULTIES.includes(meta.difficulty) ? meta.difficulty : 'Custom';
     const song = (meta.song || '').trim().slice(0, 60);
     if (!name) return { data: null, error: 'Give the level a name first.' };
     if (!def || !Array.isArray(def.objects) || def.objects.length < 5) {
@@ -307,7 +317,8 @@ export const Backend = {
     const data = structuredClone(def);
     data.name = name;
     data.description = description;
-    data.difficulty = difficulty;
+    delete data.creator;         // creator = the signed-in account, never typed
+    delete data.difficulty;      // difficulty comes from community votes / mods
     delete data.editor;          // camera position is private editor state
     delete data._modified;
     delete data._publishedId;
@@ -315,7 +326,7 @@ export const Backend = {
       return { data: null, error: 'Level is too large to publish (limit 256 KB).' };
     }
 
-    const row = { name, description, difficulty, data, published: true };
+    const row = { name, description, data, published: true };
     if (hasCommunityColumns !== false) row.song = song;
 
     const attempt = async (r) => {
@@ -337,5 +348,82 @@ export const Backend = {
       res = await attempt(row);
     }
     return res;
+  },
+
+  /* ================================================= difficulty votes ==== */
+
+  /** Cast (or change) the signed-in player's 1–10 difficulty vote. */
+  castDifficultyVote(levelId, userId, vote) {
+    return run((sb) => sb.from('level_votes')
+      .upsert({ level_id: levelId, user_id: userId, vote },
+              { onConflict: 'level_id,user_id' }));
+  },
+
+  /** The player's existing vote on a level (null when none). */
+  async getMyVote(levelId, userId) {
+    const res = await run((sb) => sb.from('level_votes')
+      .select('vote').eq('level_id', levelId).eq('user_id', userId).maybeSingle());
+    return { data: res.data ? res.data.vote : null, error: res.error };
+  },
+
+  /** Moderator-only official rating (locks voting, awards creator points). */
+  rateLevel(levelId, difficulty, rating) {
+    return run((sb) => sb.rpc('rate_level', {
+      p_level: levelId, p_difficulty: difficulty, p_rating: rating,
+    }));
+  },
+
+  /* ================================================= weekly level ==== */
+
+  /**
+   * The current Weekly Level, selected server-side (Sundays 12:00 UK).
+   * → { data: browser-row | null, error }
+   */
+  async getWeeklyLevel() {
+    const picked = await run((sb) => sb.rpc('get_weekly_level'));
+    if (picked.error || !picked.data) return { data: null, error: picked.error };
+    const row = await run((sb) => sb.from('levels')
+      .select(levelCols(hasCommunityColumns !== false, false))
+      .eq('id', picked.data).maybeSingle());
+    return row;
+  },
+
+  /* ================================================= progression ==== */
+
+  /** First-completion Triangles, computed and stored server-side.
+   *  → { data: amountAwarded (0 on repeats), error } */
+  async recordCompletion(levelId) {
+    const res = await run((sb) => sb.rpc('record_level_completion', { p_level: levelId }));
+    return { data: typeof res.data === 'number' ? res.data : 0, error: res.error };
+  },
+
+  /** Global leaderboard rows for 'triangles' | 'creator_points'. */
+  leaderboard(stat, limit) {
+    const col = stat === 'creator_points' ? 'creator_points' : 'triangles';
+    return run((sb) => sb.from('profiles')
+      .select(`username, icon, style, ${col}`)
+      .gt(col, 0)
+      .order(col, { ascending: false })
+      .order('username', { ascending: true })
+      .limit(limit));
+  },
+
+  /** The signed-in player's global position for a stat (1-based). */
+  async myRank(stat, value) {
+    if (!value) return { data: null, error: null };
+    const col = stat === 'creator_points' ? 'creator_points' : 'triangles';
+    const res = await run(async (sb) => {
+      const { count, error } = await sb.from('profiles')
+        .select('id', { count: 'exact', head: true })
+        .gt(col, value);
+      return { data: error ? null : (count ?? 0) + 1, error };
+    });
+    return res;
+  },
+
+  /** Share the player's customisation on their public profile. */
+  pushProfileStyle(userId, style) {
+    return run((sb) => sb.from('profiles')
+      .update({ style }).eq('id', userId).select('id').maybeSingle());
   },
 };

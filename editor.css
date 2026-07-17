@@ -10,7 +10,7 @@
   --ed-top-h: 46px;
   --ed-left-w: 52px;
   --ed-right-w: 240px;
-  --ed-bottom-h: 168px;
+  --ed-bottom-h: 236px;   /* tall bottom bar: big, comfortable object cells */
 }
 
 #screen-editor { display: none; }
@@ -163,81 +163,119 @@
 .ed-hint .err, .ed-toast.err { color: var(--danger); }
 .ed-btnrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 
-/* ---------- bottom object palette ---------- */
+/* ---------- bottom object palette (GD-style: modes + tabs + big grid) ---------- */
 #ed-bottom {
   left: 0; right: 0; bottom: 0;
   height: var(--ed-bottom-h);
   display: flex;
   border-top: 1px solid var(--ed-border);
 }
-.ed-palside {
-  width: 208px; flex-shrink: 0;
+
+/* Build / Edit / Delete — the three primary editing modes */
+.ed-modes {
+  width: 116px; flex-shrink: 0;
   display: flex; flex-direction: column;
+  gap: 8px;
+  padding: 10px;
   border-right: 1px solid var(--ed-border);
 }
-.ed-search {
-  margin: 8px;
-  background: rgba(255,255,255,.07);
+.ed-mode {
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 4px;
+  font-family: var(--font-display);
+  font-size: .6rem; letter-spacing: .12em;
+  color: var(--text-dim);
+  background: var(--surface-2);
   border: 1px solid var(--ed-border);
-  border-radius: 7px;
-  color: var(--text);
-  font-family: var(--font-body);
-  font-size: .78rem;
-  padding: .4rem .6rem;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: color .12s, border-color .12s, background .12s, box-shadow .12s;
 }
-.ed-search:focus { outline: none; border-color: var(--cyan); }
+.ed-mode i { font-style: normal; font-size: 1.25rem; line-height: 1; }
+.ed-mode:hover { color: var(--text); border-color: var(--stroke-strong); background: var(--surface-3); }
+.ed-mode.on {
+  color: #070511;
+  background: var(--cyan);
+  border-color: var(--cyan);
+  box-shadow: 0 0 14px rgba(70, 230, 245, .35);
+}
+
+.ed-palmain { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+/* horizontal category tabs + search */
+.ed-tabrow {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px 0;
+}
 .ed-tabs {
-  flex: 1; overflow-y: auto;
-  display: flex; flex-direction: column;
-  padding: 0 8px 8px;
-  gap: 2px;
+  flex: 1; min-width: 0;
+  display: flex; gap: 4px;
+  overflow-x: auto; overflow-y: hidden;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
 }
 .ed-tab {
-  display: flex; align-items: center; gap: 8px;
+  flex-shrink: 0;
+  display: flex; align-items: center; gap: 6px;
   font-family: var(--font-body);
   font-size: .72rem; font-weight: 600;
   letter-spacing: .04em;
-  text-align: left;
   color: var(--text-dim);
-  background: none; border: none;
-  border-radius: 6px;
-  padding: .28rem .5rem;
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: .34rem .8rem;
   cursor: pointer;
+  transition: color .12s, background .12s, border-color .12s;
 }
-.ed-tab i { font-style: normal; width: 16px; text-align: center; color: var(--cyan); opacity: .7; }
-.ed-tab:hover { background: rgba(255,255,255,.05); color: var(--text); }
-.ed-tab.on { background: rgba(0,240,255,.12); color: var(--cyan); }
+.ed-tab i { font-style: normal; color: var(--cyan); opacity: .75; }
+.ed-tab:hover { background: var(--surface-3); color: var(--text); }
+.ed-tab.on { background: rgba(70, 230, 245, .14); border-color: rgba(70, 230, 245, .4); color: var(--cyan); }
+.ed-search {
+  width: 190px; flex-shrink: 0;
+  background: rgba(255,255,255,.07);
+  border: 1px solid var(--ed-border);
+  border-radius: 999px;
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: .78rem;
+  padding: .38rem .9rem;
+}
+.ed-search:focus { outline: none; border-color: var(--cyan); }
 
+/* the object grid: big, comfortable cells for long sessions */
 .ed-palgrid {
   flex: 1;
   display: grid;
-  grid-template-columns: repeat(auto-fill, 86px);
-  grid-auto-rows: 86px;
-  gap: 10px;
-  padding: 12px;
+  grid-template-columns: repeat(auto-fill, 104px);
+  grid-auto-rows: 104px;
+  gap: 12px;
+  padding: 10px 12px 12px;
   overflow-y: auto;
   align-content: start;
 }
 .ed-pal {
   position: relative;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 2px;
+  gap: 4px;
   background: rgba(255,255,255,.04);
   border: 1px solid var(--ed-border);
-  border-radius: 10px;
+  border-radius: 12px;
   cursor: pointer;
-  transition: all .12s;
+  transition: border-color .12s, transform .12s, background .12s, box-shadow .12s;
 }
-.ed-pal:hover { border-color: var(--cyan); transform: translateY(-2px); }
-.ed-pal.on { border-color: var(--cyan); box-shadow: 0 0 14px rgba(0,240,255,.45); background: rgba(0,240,255,.08); }
-.ed-palthumb { width: 44px; height: 44px; }
+.ed-pal:hover { border-color: var(--stroke-strong); transform: translateY(-2px); background: var(--surface-3); }
+.ed-pal.on { border-color: var(--cyan); box-shadow: 0 0 14px rgba(70,230,245,.4); background: rgba(70,230,245,.08); }
+.ed-palthumb { width: 58px; height: 58px; }
 .ed-palthumb svg { width: 100%; height: 100%; }
 .ed-palname {
-  font-size: .58rem; letter-spacing: .03em;
+  font-size: .62rem; letter-spacing: .03em;
   color: var(--text-dim);
-  max-width: 80px; text-align: center;
+  max-width: 96px; text-align: center;
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
+.ed-pal.on .ed-palname { color: var(--cyan); }
 .ed-star {
   position: absolute; top: 2px; right: 5px;
   font-style: normal; font-size: .72rem;
@@ -383,7 +421,15 @@
 
 /* ---------- small screens ---------- */
 @media (max-width: 900px) {
-  :root { --ed-right-w: 190px; --ed-bottom-h: 150px; }
+  :root { --ed-right-w: 190px; --ed-bottom-h: 196px; }
   .ed-btn { font-size: .55rem; padding: .38rem .5rem; }
-  .ed-palside { width: 160px; }
+  .ed-modes { width: 92px; padding: 8px; gap: 6px; }
+  .ed-palgrid { grid-template-columns: repeat(auto-fill, 88px); grid-auto-rows: 88px; gap: 8px; }
+  .ed-palthumb { width: 46px; height: 46px; }
+  .ed-search { width: 140px; }
+}
+@media (max-height: 560px) {
+  :root { --ed-bottom-h: 170px; }
+  .ed-palgrid { grid-template-columns: repeat(auto-fill, 80px); grid-auto-rows: 80px; }
+  .ed-palthumb { width: 40px; height: 40px; }
 }

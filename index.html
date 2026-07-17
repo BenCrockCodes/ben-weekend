@@ -38,58 +38,49 @@
       <div id="attempt-label">ATTEMPT&nbsp;1</div>
     </div>
 
-    <!-- ============ MAIN MENU ============ -->
+    <!-- ============ MAIN MENU (official-level carousel) ============ -->
     <section id="screen-menu" class="screen menu-screen" data-screen="menu">
       <button id="account-chip" title="Account & profile">&#9672; SIGN IN</button>
       <div class="menu-inner">
         <h1 id="logo">NEO<span>VOLT</span></h1>
         <p id="tagline">A NEON RHYTHM PLATFORMER</p>
-        <nav class="menu-orbit" aria-label="Main menu">
-          <button class="orb orb-side" data-action="character">
-            <span class="orb-icon" aria-hidden="true">&#9671;</span>
-            <span class="orb-label">CHARACTER</span>
-          </button>
-          <button class="orb orb-main" data-action="mainlevels">
-            <span class="orb-icon" aria-hidden="true">&#9654;</span>
-            <span class="orb-label">PLAY</span>
-            <small>MAIN LEVELS</small>
-          </button>
-          <button class="orb orb-side" data-action="community">
-            <span class="orb-icon" aria-hidden="true">&#127760;</span>
-            <span class="orb-label">COMMUNITY</span>
-          </button>
+        <div id="level-carousel" aria-label="Official levels">
+          <button id="car-prev" class="car-arrow" aria-label="Previous level">&#8249;</button>
+          <div id="car-card"><!-- rendered by ui.js --></div>
+          <button id="car-next" class="car-arrow" aria-label="Next level">&#8250;</button>
+        </div>
+        <nav class="menu-row" aria-label="Menu">
+          <button class="menu-pill" data-action="character">&#9671; CHARACTER</button>
+          <button class="menu-pill" data-action="community">&#127760; COMMUNITY</button>
+          <button class="menu-pill" data-action="mylevels">&#9998; CREATE</button>
         </nav>
         <div class="menu-corner">
           <button class="btn corner-btn" data-action="settings">&#9881; SETTINGS</button>
-          <button class="btn corner-btn" data-action="leaderboards">&#8801; STATS</button>
+          <button class="btn corner-btn" data-action="leaderboards">&#9650; LEADERBOARDS</button>
         </div>
-        <p id="menu-hint">SPACE / W / &uarr; TO JUMP &nbsp;&middot;&nbsp; TAP ON MOBILE</p>
       </div>
     </section>
 
     <!-- ============ COMMUNITY HUB ============ -->
     <section id="screen-community" class="screen menu-screen" data-screen="community">
-      <div class="menu-inner">
+      <div class="menu-inner wide">
         <header class="screen-head">
           <button class="btn btn-back" data-action="menu">&larr;</button>
           <h2>COMMUNITY</h2>
         </header>
-        <nav class="menu-buttons hub-buttons">
-          <button class="btn btn-big hub-btn" data-action="search">
-            <span class="hub-icon">&#128269;</span>SEARCH LEVELS
-            <small>Find levels by name, creator or difficulty</small>
+        <div id="weekly-banner"><!-- weekly level, rendered by ui.js --></div>
+        <nav class="com-tiles" aria-label="Community">
+          <button class="com-tile" data-action="search">
+            <i>&#128269;</i><b>SEARCH</b><small>Name, creator, difficulty</small>
           </button>
-          <button class="btn btn-big hub-btn" data-action="mylevels">
-            <span class="hub-icon">&#9998;</span>CREATE LEVEL
-            <small>Build, edit, playtest and upload your own</small>
+          <button class="com-tile" data-action="ugc">
+            <i>&#127760;</i><b>ALL LEVELS</b><small>Everything published</small>
           </button>
-          <button class="btn btn-big hub-btn" data-action="ugc">
-            <span class="hub-icon">&#127760;</span>ALL UPLOADED LEVELS
-            <small>Browse everything the community has published</small>
+          <button class="com-tile" data-action="mylevels">
+            <i>&#9998;</i><b>CREATE</b><small>Your level workspace</small>
           </button>
-          <button class="btn btn-big hub-btn" data-action="recent">
-            <span class="hub-icon">&#8635;</span>RECENTLY PLAYED
-            <small>Jump back into levels you played before</small>
+          <button class="com-tile" data-action="recent">
+            <i>&#8635;</i><b>RECENT</b><small>Recently played</small>
           </button>
         </nav>
       </div>
@@ -212,8 +203,12 @@
           <button class="btn btn-back" data-action="menu">&larr;</button>
           <h2>LEADERBOARDS</h2>
         </header>
+        <div class="lb-tabs" role="tablist">
+          <button class="lb-tab on" data-lb="triangles">&#9650; TRIANGLES</button>
+          <button class="lb-tab" data-lb="creator_points">&#9733; CREATOR POINTS</button>
+          <button class="lb-tab" data-lb="local">&#9632; MY PROGRESS</button>
+        </div>
         <div id="lb-table"><!-- populated by ui.js --></div>
-        <p class="soon-note">GLOBAL ONLINE LEADERBOARDS COMING SOON</p>
       </div>
     </section>
 
@@ -271,6 +266,7 @@
           <div class="vstat"><span class="vstat-label">BEST</span><span id="v-best" class="vstat-value">100%</span></div>
           <div class="vstat"><span class="vstat-label">ATTEMPTS</span><span id="v-attempts" class="vstat-value">1</span></div>
         </div>
+        <p id="v-triangles" class="v-triangles" hidden>&#9650; +0 TRIANGLES</p>
         <button class="btn btn-primary btn-big" data-action="continue">CONTINUE</button>
       </div>
     </section>

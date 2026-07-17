@@ -29,10 +29,14 @@ const THEME_FIELDS = [
   ['block', 'Block fill'],
 ];
 
+/* The primary Build/Edit/Delete modes live as big buttons beside the object
+ * palette (GD workflow); the left rail keeps the secondary tools. */
+const MODE_TOOLS = [
+  ['paint', 'BUILD', '✏', 'Place objects (2)'],
+  ['select', 'EDIT', '⬚', 'Select / move (1)'],
+  ['delete', 'DELETE', '✖', 'Erase (3)'],
+];
 const TOOLS = [
-  ['select', '⬚', 'Select / Move (1)'],
-  ['paint', '✏', 'Place / Paint (2)'],
-  ['delete', '✖', 'Delete (3)'],
   ['picker', '⊙', 'Eyedropper (4)'],
 ];
 const ACTIONS = [
@@ -176,6 +180,9 @@ export class EditorUI {
     for (const [id, b] of Object.entries(this.$toolBtns)) {
       b.classList.toggle('on', this.editor.tool === id);
     }
+    for (const [id, b] of Object.entries(this.$modeBtns || {})) {
+      b.classList.toggle('on', this.editor.tool === id);
+    }
   }
 
   syncToggles() {
@@ -316,22 +323,46 @@ export class EditorUI {
   _buildBottom() {
     const panel = document.getElementById('ed-bottom');
     panel.innerHTML = '';
+
+    // ---- Build / Edit / Delete mode column (the GD-style anchor)
+    const modes = el('div', 'ed-modes');
+    this.$modeBtns = {};
+    for (const [tool, label, icon, tip] of MODE_TOOLS) {
+      const b = el('button', 'ed-mode', `<i>${icon}</i><span>${label}</span>`);
+      b.title = tip;
+      b.onclick = () => this.editor.setTool(tool);
+      this.$modeBtns[tool] = b;
+      modes.append(b);
+    }
+    panel.append(modes);
+
+    // ---- category tabs (horizontal) + search, above a large object grid
+    const main = el('div', 'ed-palmain');
+    const tabRow = el('div', 'ed-tabrow');
     const tabs = el('div', 'ed-tabs');
     this.$tabBtns = {};
     for (const cat of CATEGORIES) {
-      const b = el('button', 'ed-tab', `<i>${cat.icon}</i>${cat.name}`);
-      b.onclick = () => { this.activeCat = cat.id; this.search = ''; this.$search.value = ''; this._renderPalette(); };
+      const b = el('button', 'ed-tab', `<i>${cat.icon}</i><span>${cat.name}</span>`);
+      b.title = cat.name;
+      b.onclick = () => {
+        this.activeCat = cat.id;
+        this.search = '';
+        this.$search.value = '';
+        this._renderPalette();
+        this.$tabBtns[cat.id].scrollIntoView({ inline: 'nearest', block: 'nearest' });
+      };
       this.$tabBtns[cat.id] = b;
       tabs.append(b);
     }
-    const side = el('div', 'ed-palside');
     this.$search = el('input', 'ed-search');
+    this.$search.type = 'search';
     this.$search.placeholder = 'Search objects…';
     this.$search.oninput = () => { this.search = this.$search.value.trim().toLowerCase(); this._renderPalette(); };
-    side.append(this.$search, tabs);
+    tabRow.append(tabs, this.$search);
 
     this.$palGrid = el('div', 'ed-palgrid');
-    panel.append(side, this.$palGrid);
+    main.append(tabRow, this.$palGrid);
+    panel.append(main);
     this._renderPalette();
   }
 
@@ -766,29 +797,19 @@ export class EditorUI {
     const name = el('input'); name.value = d.name; name.maxLength = 24;
     const desc = el('textarea'); desc.value = d.description || ''; desc.rows = 3; desc.maxLength = 200;
     desc.placeholder = 'Tell players what to expect…';
-    const diff = el('select');
-    for (const opt of ['Easy', 'Normal', 'Hard', 'Insane', 'Custom']) {
-      const o = el('option', '', opt); o.value = opt; diff.append(o);
-    }
-    diff.value = d.difficulty || 'Custom';
     // song info: auto-derived from the level's soundtrack, still editable
     const builtIn = AudioManager.TRACK_INFO.find((t) => t.id === d.track);
     const song = el('input'); song.maxLength = 60;
     song.value = (d.customMusic && d.customMusic.title)
       ? `${d.customMusic.title}${d.customMusic.artist ? ' — ' + d.customMusic.artist : ''}`.slice(0, 60)
       : (builtIn ? builtIn.name : '');
-    const creator = el('input'); creator.value = profile.username; creator.disabled = true;
-    creator.title = 'Linked to your account automatically';
 
     const status = el('p', 'ed-hint ed-pubstatus');
     const go = el('button', 'ed-btn ed-accent ed-publishgo',
       d._publishedId ? 'UPDATE PUBLISHED LEVEL' : 'PUBLISH');
 
     go.onclick = async () => {
-      const meta = {
-        name: name.value, description: desc.value,
-        difficulty: diff.value, song: song.value,
-      };
+      const meta = { name: name.value, description: desc.value, song: song.value };
       if (!meta.name.trim()) { status.innerHTML = '<span class="err">The level needs a name.</span>'; return; }
       if (d.objects.length < 5) {
         status.innerHTML = '<span class="err">Too empty to publish — place at least 5 objects.</span>';
@@ -801,7 +822,6 @@ export class EditorUI {
       // keep the local copy in sync with what goes online
       d.name = meta.name.trim().toUpperCase().slice(0, 24) || 'UNTITLED';
       d.description = meta.description.trim().slice(0, 200);
-      d.difficulty = meta.difficulty;
 
       const { data, error } = await Backend.publishLevel(game.user.id, d, meta);
       go.disabled = false;
@@ -822,9 +842,10 @@ export class EditorUI {
     box.append(
       this._field('Name', name),
       this._field('Description', desc),
-      this._field('Difficulty', diff),
       this._field('Song', song),
-      this._field('Creator', creator),
+      el('p', 'ed-hint',
+        `Published as <b>${profile.username}</b> (your account — no name to type). ` +
+        'Difficulty is decided by community votes, or by a moderator rating.'),
       go, status,
     );
   }

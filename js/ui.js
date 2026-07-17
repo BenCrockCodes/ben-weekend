@@ -4,6 +4,8 @@
  * The UI never owns game state; it renders what game.js tells it to and
  * forwards user intent back through the `actions` callback table.
  */
+import { DIFFICULTY_SCALE, difficultyLabel } from './backend/backend.js';
+
 export class UI {
   /**
    * @param {object} actions {play, levelSelected(i), pause, resume, restart,
@@ -38,13 +40,21 @@ export class UI {
     this.$searchStatus = document.getElementById('search-status');
     this.$searchMore = document.getElementById('search-more');
     this.$recentList = document.getElementById('recent-list');
+    this.$carCard = document.getElementById('car-card');
+    this.$weekly = document.getElementById('weekly-banner');
     this.ugc = null;      // community browser state while the screen is open
     this.searchCtx = null; // search page state
+    this.car = null;       // main-menu level carousel
+    this.comUser = null;   // { userId, isMod, vote(), getMyVote(), rate() } when signed in
+    this.lb = null;        // leaderboards context
+    this.lbTab = 'triangles';
 
     this._bindButtons();
     this._bindSettings();
     this._bindUGC();
     this._bindSearch();
+    this._bindCarousel();
+    this._bindLeaderboards();
   }
 
   /* ------------------------------------------------ wiring ---- */
@@ -57,7 +67,7 @@ export class UI {
       const a = btn.dataset.action;
       switch (a) {
         case 'menu': this.show('menu'); break;
-        case 'community': this.show('community'); break;
+        case 'community': this.actions.showCommunity(); break;
         case 'mainlevels': this.actions.showMainLevels(); break;
         case 'ugc': this.actions.showUGC(); break;
         case 'search': this.actions.showSearch(); break;
@@ -111,6 +121,58 @@ export class UI {
   show(name) {
     for (const key of Object.keys(this.screens)) {
       this.screens[key].classList.toggle('active', key === name);
+    }
+    if (name === 'menu' && this.car) this._renderCarousel();   // fresh stats
+  }
+
+  /* ------------------------------------------------ main-menu carousel ---- */
+
+  _bindCarousel() {
+    document.getElementById('car-prev').addEventListener('click', () => this._carStep(-1));
+    document.getElementById('car-next').addEventListener('click', () => this._carStep(1));
+    window.addEventListener('keydown', (e) => {
+      if (!this.car || !this.screens.menu.classList.contains('active')) return;
+      if (e.code === 'ArrowLeft') { e.preventDefault(); this._carStep(-1); }
+      else if (e.code === 'ArrowRight') { e.preventDefault(); this._carStep(1); }
+    });
+  }
+
+  /** ctx = { metas, save, play(index) } — every official level, no locks. */
+  initCarousel(ctx) {
+    this.car = { ...ctx, index: 0 };
+    this._renderCarousel();
+  }
+
+  _carStep(dir) {
+    const c = this.car;
+    if (!c) return;
+    this.actions.uiSound('click');
+    c.index = (c.index + dir + c.metas.length) % c.metas.length;
+    this._renderCarousel(dir);
+  }
+
+  _renderCarousel(dir = 0) {
+    const c = this.car;
+    const meta = c.metas[c.index];
+    const rec = c.save.level(meta.id);
+    const coins = rec.coins.filter(Boolean).length;
+    const card = this.$carCard;
+    card.innerHTML = `
+      <p class="car-count">LEVEL ${c.index + 1} / ${c.metas.length}</p>
+      <h3 class="car-name">${meta.name}</h3>
+      <p class="car-meta">${meta.difficulty.toUpperCase()}
+        <span class="lc-stars">${'★'.repeat(meta.stars || 1)}</span>
+        &nbsp;·&nbsp; ♪ ${meta.song ? meta.song.name : ''}</p>
+      <div class="lc-bar"><div class="lc-bar-fill" style="width:${rec.best}%"></div></div>
+      <p class="car-best">${rec.completed ? 'COMPLETE ✓' : `BEST ${rec.best}%`} &nbsp;·&nbsp; ${coins}/3 COINS</p>
+      <button class="btn btn-primary car-play">PLAY</button>`;
+    const [r, g, b] = meta.theme.accent.map((v) => Math.round(v * 255));
+    card.style.setProperty('--accent', `rgb(${r},${g},${b})`);
+    card.querySelector('.car-play').onclick = () => c.play(c.index);
+    if (dir !== 0) {
+      card.classList.remove('slide-left', 'slide-right');
+      void card.offsetWidth;   // restart the slide animation
+      card.classList.add(dir > 0 ? 'slide-left' : 'slide-right');
     }
   }
 
@@ -196,6 +258,130 @@ export class UI {
     const d = document.createElement('div');
     d.textContent = s;
     return d.innerHTML;
+  }
+
+  /* ------------------------------------------------ community hub ---- */
+
+  /** Set the signed-in community context (null when signed out).
+   *  { userId, isMod, vote(levelId,v), getMyVote(levelId), rate(levelId,d,type) } */
+  setCommunityUser(ctx) { this.comUser = ctx; }
+
+  /** ctx = { configured, weekly(): Promise<{data,error}>, play(id) }. */
+  showCommunity(ctx) {
+    this.show('community');
+    this._renderWeekly(ctx);
+  }
+
+  async _renderWeekly(ctx) {
+    const b = this.$weekly;
+    if (!ctx.configured) { b.innerHTML = ''; return; }
+    const gen = (this._weeklyGen = (this._weeklyGen || 0) + 1);
+    b.innerHTML = '<div class="ugc-skel weekly-skel"></div>';
+    const { data, error } = await ctx.weekly();
+    if (gen !== this._weeklyGen) return;
+    if (error || !data) {
+      // no pick yet (empty community / upgrade SQL pending) — stay quiet
+      b.innerHTML = '';
+      return;
+    }
+    const owner = data.owner || {};
+    b.innerHTML = `
+      <div class="weekly-card">
+        <div class="weekly-badge">&#9733;<span>WEEKLY<br>LEVEL</span></div>
+        <div class="weekly-info">
+          <h3>${this._esc(data.name)}</h3>
+          <p>by ${this._esc(owner.username || 'unknown')} · &#9654; ${data.downloads || 0}</p>
+        </div>
+        ${this._diffChipHTML(data)}
+        <button class="btn btn-primary weekly-play">PLAY</button>
+      </div>`;
+    const btn = b.querySelector('.weekly-play');
+    btn.onclick = async () => {
+      btn.disabled = true; btn.textContent = 'LOADING…';
+      const err = await ctx.play(data.id);
+      btn.disabled = false; btn.textContent = 'PLAY';
+      if (err) b.querySelector('.weekly-info p').textContent = `⚠ ${err}`;
+    };
+  }
+
+  /* ------------------------------------------------ difficulty chips ---- */
+
+  /** The level's displayed difficulty: official rating wins, else the
+   *  community's most-voted option, else UNRATED. Rating types decorate
+   *  the chip (star icon / glow / animated fire). */
+  _diffChipHTML(row) {
+    const official = row.official_difficulty || null;
+    const v = official || row.community_difficulty || null;
+    const label = v ? `${v} · ${difficultyLabel(v).toUpperCase()}` : 'UNRATED';
+    const tier = v ? `diff-t${v}` : 'diff-t0';
+    const rating = row.rating ? ` rated-${row.rating}` : '';
+    const star = row.rating === 'star' ? ' <i class="rate-star">★</i>' : '';
+    return `<span class="ugc-diff ${tier}${rating}" title="${official ? 'Official rating' : (v ? 'Community vote' : 'Not yet voted')}">${label}${star}</span>`;
+  }
+
+  /** Voting / moderating panel under a level card's chip. */
+  _votePanel(row, host) {
+    const cu = this.comUser;
+    if (!cu) return null;
+    const canVote = !row.official_difficulty;
+    if (!canVote && !cu.isMod) return null;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'vote-wrap';
+    const toggle = document.createElement('button');
+    toggle.className = 'vote-toggle';
+    toggle.textContent = cu.isMod ? 'RATE' : 'VOTE';
+    wrap.append(toggle);
+
+    toggle.onclick = async (e) => {
+      e.stopPropagation();
+      if (wrap.querySelector('.vote-panel')) { wrap.querySelector('.vote-panel').remove(); return; }
+      const panel = document.createElement('div');
+      panel.className = 'vote-panel';
+      panel.onclick = (ev) => ev.stopPropagation();
+      const nums = document.createElement('div');
+      nums.className = 'vote-nums';
+      let picked = null;
+      const mine = !cu.isMod ? await cu.getMyVote(row.id) : null;
+      for (const d of DIFFICULTY_SCALE) {
+        const nb = document.createElement('button');
+        nb.className = 'vote-num' + (mine === d.v ? ' on' : '');
+        nb.textContent = d.v;
+        nb.title = d.label;
+        nb.onclick = async (ev) => {
+          ev.stopPropagation();
+          if (cu.isMod) {   // moderators pick the number, then the rating type
+            picked = d.v;
+            nums.querySelectorAll('.vote-num').forEach((x) => x.classList.remove('on'));
+            nb.classList.add('on');
+            return;
+          }
+          const { error } = await cu.vote(row.id, d.v);
+          panel.innerHTML = `<p class="vote-done">${error ? '⚠ ' + this._esc(error) : 'VOTED ✓ — thanks!'}</p>`;
+        };
+        nums.append(nb);
+      }
+      panel.append(nums);
+      if (cu.isMod) {
+        const types = document.createElement('div');
+        types.className = 'vote-types';
+        for (const [t, label] of [[null, 'RATE ONLY'], ['star', '★ STAR'], ['feature', '◆ FEATURE'], ['epic', '🔥 EPIC']]) {
+          const tb = document.createElement('button');
+          tb.className = 'vote-type';
+          tb.textContent = label;
+          tb.onclick = async (ev) => {
+            ev.stopPropagation();
+            if (!picked) { panel.querySelector('.vote-nums').classList.add('shake'); return; }
+            const { error } = await cu.rate(row.id, picked, t);
+            panel.innerHTML = `<p class="vote-done">${error ? '⚠ ' + this._esc(error) : 'RATED ✓'}</p>`;
+          };
+          types.append(tb);
+        }
+        panel.append(types);
+      }
+      wrap.append(panel);
+    };
+    return wrap;
   }
 
   /* ------------------------------------------------ community browser ---- */
@@ -311,13 +497,12 @@ export class UI {
     const card = document.createElement('article');
     card.className = 'ugc-card';
     const owner = row.owner || {};
-    const diff = row.difficulty || 'Custom';
     const date = new Date(row.created_at).toLocaleDateString();
     const fmt = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n || 0}`);
     card.innerHTML = `
       <div class="ugc-card-head">
         <h3 class="ugc-name">${this._esc(row.name)}</h3>
-        <span class="ugc-diff diff-${diff.toLowerCase()}">${this._esc(diff.toUpperCase())}</span>
+        ${this._diffChipHTML(row)}
       </div>
       <p class="ugc-creator">
         <span class="char-cube c${Number(owner.icon) || 0} ugc-cube"></span>${this._esc(owner.username || 'unknown')}
@@ -330,6 +515,11 @@ export class UI {
         <span class="ugc-date" title="Published">${date}</span>
       </div>
       <button class="btn btn-primary ugc-play">PLAY</button>`;
+    // difficulty voting / moderator rating (signed-in, extras schema only)
+    if (hasExtras) {
+      const votes = this._votePanel(row, card);
+      if (votes) card.querySelector('.ugc-meta').append(votes);
+    }
     const play = card.querySelector('.ugc-play');
     const doPlay = playFn || ((id) => this.ugc.ctx.play(id));
     const go = async () => {
@@ -472,8 +662,89 @@ export class UI {
 
   /* ------------------------------------------------ leaderboards ---- */
 
-  populateLeaderboards(levelMetas, save) {
-    const rows = levelMetas.map((meta) => {
+  _bindLeaderboards() {
+    for (const tab of document.querySelectorAll('.lb-tab')) {
+      tab.addEventListener('click', () => {
+        this.lbTab = tab.dataset.lb;
+        document.querySelectorAll('.lb-tab').forEach((t) =>
+          t.classList.toggle('on', t === tab));
+        this._lbLoad();
+      });
+    }
+  }
+
+  /** ctx = { configured, local: {metas, save}, fetchTop(stat, n),
+   *          myRank(stat, value), me(): profile|null }. */
+  showLeaderboards(ctx) {
+    this.lb = ctx;
+    this.show('leaderboards');
+    this._lbLoad();
+  }
+
+  async _lbLoad() {
+    const ctx = this.lb;
+    if (!ctx) return;
+    const box = this.$lbTable;
+
+    if (this.lbTab === 'local') return this._lbLocal(box, ctx.local);
+
+    if (!ctx.configured) {
+      box.innerHTML = '';
+      box.append(this._ugcNote('Online leaderboards need the Supabase setup — see <b>SETUP.md</b>.'));
+      return;
+    }
+    const stat = this.lbTab;
+    const gen = (this._lbGen = (this._lbGen || 0) + 1);
+    box.innerHTML = '<div class="ugc-skel weekly-skel"></div>';
+    const limit = stat === 'creator_points' ? 25 : 100;
+    const res = await ctx.fetchTop(stat, limit);
+    if (gen !== this._lbGen || this.lbTab !== stat) return;
+    if (res.error) {
+      box.innerHTML = '';
+      box.append(this._ugcNote(/column|schema/i.test(res.error)
+        ? 'Global leaderboards unlock once <b>supabase/upgrade-progression.sql</b> has been run.'
+        : `⚠ ${this._esc(res.error)}`));
+      return;
+    }
+    const rows = res.data || [];
+    const unit = stat === 'creator_points' ? 'CP' : '▲';
+    const me = ctx.me();
+    let html = rows.length ? '' : '';
+    if (!rows.length) {
+      box.innerHTML = '';
+      box.append(this._ugcNote(stat === 'creator_points'
+        ? 'No creator points awarded yet — rated levels earn their creators CP.'
+        : 'No triangles earned yet — complete community levels to appear here!'));
+    } else {
+      html = `<table class="lb"><thead><tr><th>#</th><th>PLAYER</th><th>${stat === 'creator_points' ? 'CREATOR POINTS' : 'TRIANGLES'}</th></tr></thead><tbody>`;
+      rows.forEach((r, i) => {
+        const meRow = me && r.username === me.username;
+        html += `<tr class="${meRow ? 'lb-me' : ''}${i < 3 ? ` lb-top${i + 1}` : ''}">
+          <td>${i + 1}</td>
+          <td><span class="char-cube c${Number(r.icon) || 0} ugc-cube"></span> ${this._esc(r.username)}</td>
+          <td>${unit} ${(r[stat] || 0).toLocaleString()}</td>
+        </tr>`;
+      });
+      html += '</tbody></table>';
+      box.innerHTML = html;
+    }
+    // the player's own position when outside the visible top
+    const mine = me ? (me[stat] || 0) : 0;
+    const inTop = me && rows.some((r) => r.username === me.username);
+    if (me && mine > 0 && !inTop) {
+      const rank = await ctx.myRank(stat, mine);
+      if (gen !== this._lbGen) return;
+      const foot = document.createElement('div');
+      foot.className = 'lb-mine';
+      foot.innerHTML = `<span>YOUR POSITION</span>
+        <b>#${rank.data ? rank.data.toLocaleString() : '—'}</b>
+        <span>${unit} ${mine.toLocaleString()}</span>`;
+      box.append(foot);
+    }
+  }
+
+  _lbLocal(box, { metas, save }) {
+    const rows = metas.map((meta) => {
       const rec = save.level(meta.id);
       return `<tr>
         <td>${meta.name}</td>
@@ -484,9 +755,9 @@ export class UI {
         <td>${rec.completed ? '✓' : '—'}</td>
       </tr>`;
     }).join('');
-    this.$lbTable.innerHTML = `
+    box.innerHTML = `
       <table class="lb">
-        <thead><tr><th>LEVEL</th><th>DIFF</th><th>BEST</th><th>ATTEMPTS</th><th>COINS</th><th>DONE</th></tr></thead>
+        <thead><tr><th>LEVEL</th><th>STARS</th><th>BEST</th><th>ATTEMPTS</th><th>COINS</th><th>DONE</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`;
   }
@@ -516,12 +787,15 @@ export class UI {
 
   /* ------------------------------------------------ victory ---- */
 
-  showVictory({ levelName, pct, coins, coinsTotal, best, attempts }) {
+  showVictory({ levelName, pct, coins, coinsTotal, best, attempts, triangles }) {
     document.getElementById('victory-level-name').textContent = levelName;
     document.getElementById('v-pct').textContent = `${pct}%`;
     document.getElementById('v-coins').textContent = `${coins}/${coinsTotal}`;
     document.getElementById('v-best').textContent = `${best}%`;
     document.getElementById('v-attempts').textContent = attempts;
+    const tri = document.getElementById('v-triangles');
+    tri.hidden = !triangles;
+    if (triangles) tri.innerHTML = `&#9650; +${triangles} TRIANGLE${triangles === 1 ? '' : 'S'}`;
     this.showModal('victory');
   }
 }

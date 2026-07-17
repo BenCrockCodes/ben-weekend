@@ -420,10 +420,214 @@ function level5() {
 }
 
 /* ================================================================
+ * LEVEL 6 — "LOW ORBIT" (Normal, 152 bpm, speed 10.13)
+ * Introduces the UFO: tap impulses (apex ≈ 1.64, flap ≈ 4.2 blocks).
+ * Two flight sections with generous gaps that tighten gradually.
+ * ================================================================ */
+function level6() {
+  const b = builder();
+
+  // cube warm-up
+  b.spike(40); b.spike(52); b.spike(64, 0, 2); b.spike(78);
+  b.block(90, 0, 2, 1); b.spike(100);
+
+  // ---- UFO section 1 (gentle): ceiling guide at y7
+  b.modeP(112, 'ufo');
+  b.block(116, 7, 6, 1); b.block(128, 7, 6, 1); b.block(140, 7, 6, 1);
+  b.block(152, 7, 6, 1); b.block(164, 7, 6, 1); b.block(176, 7, 6, 1);
+  b.block(188, 7, 6, 1); b.block(200, 7, 6, 1); b.block(212, 7, 6, 1);
+  // floor pillars to hop — gaps stay ≥ 4 tall
+  b.block(132, 0, 1, 3); b.spike(133);
+  b.coin(140, 3.4);
+  b.block(150, 0, 1, 2); b.block(151, 0, 1, 2);
+  b.saw(168, 3.4, 0.8);
+  b.block(182, 0, 1, 3);
+  b.block(198, 0, 1, 2); b.spike(199, 2, 1);   // spike on the pillar top
+  b.block(214, 0, 1, 3);
+  b.modeP(224, 'cube');
+
+  // cube interlude
+  b.spike(238, 0, 2); b.spike(252);
+  b.block(264, 0, 2, 2); b.spike(274);
+
+  // ---- UFO section 2 (tighter): stalactites join the pillars
+  b.modeP(286, 'ufo');
+  b.block(290, 7, 6, 1); b.block(302, 7, 6, 1); b.block(314, 7, 6, 1);
+  b.block(326, 7, 6, 1); b.block(338, 7, 6, 1); b.block(350, 7, 6, 1);
+  b.block(362, 7, 6, 1); b.block(374, 7, 6, 1); b.block(386, 7, 6, 1);
+  b.block(296, 0, 1, 3);
+  b.block(308, 5, 1, 2);                        // hang from the ceiling
+  b.coin(312, 2.6);
+  b.block(320, 0, 1, 3); b.spike(321);
+  b.saw(334, 3.6, 0.9);
+  b.block(346, 5, 1, 2); b.block(347, 0, 1, 2);
+  b.block(360, 0, 1, 3);
+  b.saw(372, 3.2, 0.8);
+  b.block(384, 0, 1, 2); b.spike(385, 2, 1);
+  b.modeP(396, 'cube');
+
+  // outro rhythm + reward coin
+  b.spike(410, 0, 2);
+  b.coin(424, 2.6);
+  b.spike(430); b.spike(444, 0, 2); b.spike(458);
+
+  return {
+    id: 'level6',
+    name: 'LOW ORBIT',
+    difficulty: 'Normal',
+    stars: 4,
+    song: { name: 'Voltage (Orbital Mix)', artist: 'NEOVOLT OST' },
+    bpm: 152,
+    speed: 10.133,
+    length: 480,
+    track: 'voltage',
+    theme: {
+      bg1: [0.03, 0.0, 0.08], bg2: [0.12, 0.03, 0.24],
+      accent: [1.0, 0.6, 0.15], accent2: [0.65, 0.4, 1.0],
+      ground: [0.07, 0.02, 0.16], block: [0.17, 0.08, 0.34],
+    },
+    objects: b.objects,
+  };
+}
+
+/* ================================================================
+ * LEVEL 7 — "WAVELENGTH" (Hard, 158 bpm, speed 10.53)
+ * Introduces the Wave: 45° diagonals — vertical travel equals
+ * horizontal travel, so every gap is measured in both axes.
+ * ================================================================ */
+function level7() {
+  const b = builder();
+
+  // cube warm-up
+  b.spike(40); b.spike(52, 0, 2); b.spike(66); b.spike(80, 0, 2);
+
+  // ---- wave section 1: wide channel (floor 0, ceiling 8)
+  b.modeP(94, 'wave');
+  b.block(98, 8, 24, 1); b.block(126, 8, 24, 1); b.block(154, 8, 24, 1);
+  b.block(182, 8, 24, 1);
+  // alternating baffles, 14–16 apart, channel stays ≥ 3.5
+  b.block(112, 0, 2, 4);
+  b.block(128, 4, 2, 4);
+  b.coin(138, 4.2);
+  b.block(144, 0, 2, 4);
+  b.block(160, 4, 2, 4);
+  b.block(176, 0, 2, 3);
+  b.saw(192, 4, 0.9);
+  b.modeP(206, 'cube');
+
+  // cube interlude
+  b.spike(220, 0, 3); b.ring(221, 1.7);
+  b.block(236, 0, 2, 1); b.spike(246);
+
+  // ---- wave section 2: tighter channel (ceiling 7), quicker baffles
+  b.modeP(258, 'wave');
+  b.block(262, 7, 22, 1); b.block(288, 7, 22, 1); b.block(314, 7, 22, 1);
+  b.block(340, 7, 22, 1); b.block(366, 7, 22, 1);
+  b.block(274, 0, 2, 4);
+  b.block(288, 3.5, 2, 3.5);
+  b.block(302, 0, 2, 4);
+  b.coin(310, 4.6);
+  b.block(316, 3.5, 2, 3.5);
+  b.block(330, 0, 2, 4.5);
+  b.saw(344, 3.4, 0.8);
+  b.block(356, 3.5, 2, 3.5);
+  b.block(370, 0, 2, 4);
+  b.modeP(384, 'cube');
+
+  // outro
+  b.spike(398, 0, 2); b.spike(412);
+  b.coin(426, 2.6);
+  b.spike(432, 0, 3); b.spike(452);
+
+  return {
+    id: 'level7',
+    name: 'WAVELENGTH',
+    difficulty: 'Hard',
+    stars: 5,
+    song: { name: 'Neon Runner (Waveform Mix)', artist: 'NEOVOLT OST' },
+    bpm: 158,
+    speed: 10.533,
+    length: 490,
+    track: 'runner',
+    theme: {
+      bg1: [0.0, 0.03, 0.08], bg2: [0.01, 0.1, 0.22],
+      accent: [0.25, 0.75, 1.0], accent2: [0.0, 0.94, 1.0],
+      ground: [0.01, 0.06, 0.14], block: [0.05, 0.14, 0.3],
+    },
+    objects: b.objects,
+  };
+}
+
+/* ================================================================
+ * LEVEL 8 — "STEEL PULSE" (Hard, 154 bpm, speed 10.27)
+ * Introduces the Robot: tap hops (~1.1) vs held boosts (~2.9).
+ * Teaches short taps first, then walls that demand full holds.
+ * ================================================================ */
+function level8() {
+  const b = builder();
+
+  // cube warm-up
+  b.spike(40); b.spike(54, 0, 2); b.spike(68);
+
+  // ---- robot section 1: taps, then holds
+  b.modeP(82, 'robot');
+  b.spike(96); b.spike(108);                     // tap hops
+  b.spike(120, 0, 2);                            // slightly longer tap
+  b.block(134, 0, 2, 2);                         // first hold wall (h2)
+  b.coin(135, 4.0);
+  b.spike(148, 0, 2);
+  b.block(160, 0, 2, 2); b.spike(160, 2, 2);     // wall with spikes on top — full hold
+  b.spike(176, 0, 3);                            // wide pit — hold to clear
+  b.block(192, 0, 2, 2.5);
+  b.modeP(206, 'cube');
+
+  // cube interlude
+  b.block(220, 0, 2, 1); b.block(224, 0, 2, 2); b.spike(234);
+  b.spike(248, 0, 2);
+
+  // ---- robot section 2: staircases and mixed heights
+  b.modeP(262, 'robot');
+  b.block(276, 0, 2, 1); b.block(280, 0, 2, 2);  // stairs: tap, then hold
+  b.spike(292);
+  b.block(304, 0, 2, 2.5);
+  b.coin(305, 4.6);
+  b.spike(318, 0, 3);
+  b.block(334, 0, 2, 2); b.spike(334, 2, 2);
+  b.spike(350, 0, 2);
+  b.block(362, 0, 3, 2.5); b.saw(363.5, 4.6, 0.8);   // hold but not too high!
+  b.spike(380, 0, 3);
+  b.modeP(396, 'cube');
+
+  // outro
+  b.spike(410, 0, 2); b.spike(424);
+  b.coin(438, 2.6);
+  b.spike(444, 0, 2); b.spike(458, 0, 3);
+
+  return {
+    id: 'level8',
+    name: 'STEEL PULSE',
+    difficulty: 'Hard',
+    stars: 5,
+    song: { name: 'Gravity Storm (Steel Mix)', artist: 'NEOVOLT OST' },
+    bpm: 154,
+    speed: 10.267,
+    length: 490,
+    track: 'storm',
+    theme: {
+      bg1: [0.04, 0.04, 0.06], bg2: [0.12, 0.13, 0.18],
+      accent: [1.0, 0.85, 0.3], accent2: [1.0, 0.35, 0.25],
+      ground: [0.08, 0.08, 0.11], block: [0.18, 0.19, 0.26],
+    },
+    objects: b.objects,
+  };
+}
+
+/* ================================================================
  * Output: one internal ES module — the game never fetches level files.
  * ================================================================ */
 
-const defs = [level1(), level2(), level3(), level4(), level5()];
+const defs = [level1(), level2(), level3(), level4(), level5(),
+              level6(), level7(), level8()];
 
 // song/star metadata for the three original levels
 defs[0].stars = 1; defs[0].song = { name: 'Neon Runner', artist: 'NEOVOLT OST' };
